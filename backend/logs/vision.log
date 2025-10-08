@@ -1,0 +1,144 @@
+2025-10-08 21:35:16,232 - vision_inspection.app - INFO - === Vision Inspection System Starting ===
+2025-10-08 21:35:16,232 - vision_inspection.app - INFO - System: Vision Inspection System v1.0.0
+2025-10-08 21:35:16,233 - vision_inspection.app - INFO - CORS enabled for origins: ['http://localhost:3000']
+2025-10-08 21:35:16,233 - vision_inspection.app - INFO - Initializing database...
+2025-10-08 21:35:16,294 - vision_inspection.app - INFO - Database initialized successfully
+2025-10-08 21:35:16,294 - vision_inspection.app - INFO - Initializing hardware controllers...
+2025-10-08 21:35:16,296 - vision_inspection.camera - WARNING - No camera available - using test pattern
+2025-10-08 21:35:16,296 - vision_inspection.app - INFO - Camera controller initialized
+2025-10-08 21:35:16,296 - vision_inspection.gpio - ERROR - Failed to initialize GPIO: Cannot determine SOC peripheral base address
+2025-10-08 21:35:16,296 - vision_inspection.app - INFO - GPIO controller initialized
+2025-10-08 21:35:16,296 - vision_inspection.app - INFO - Initializing program manager...
+2025-10-08 21:35:16,296 - vision_inspection.program_manager - INFO - Program manager initialized
+2025-10-08 21:35:16,296 - vision_inspection.app - INFO - Program manager initialized
+2025-10-08 21:35:16,296 - vision_inspection.api - INFO - API initialized with dependencies
+2025-10-08 21:35:16,296 - vision_inspection.app - INFO - API initialized
+2025-10-08 21:35:16,331 - vision_inspection.app - INFO - API blueprint registered
+2025-10-08 21:35:16,362 - vision_inspection.websocket - INFO - WebSocket initialized with dependencies
+2025-10-08 21:35:16,362 - vision_inspection.app - INFO - WebSocket initialized
+2025-10-08 21:35:16,363 - vision_inspection.app - INFO - Application initialization complete
+2025-10-08 21:35:16,363 - vision_inspection.app - INFO - API available at: http://0.0.0.0:5000/api
+2025-10-08 21:35:16,365 - vision_inspection.app - INFO - Starting server on 0.0.0.0:5000 (debug=False)
+2025-10-08 21:35:16,365 - vision_inspection.app - ERROR - Server error: The Werkzeug web server is not designed to run in production. Pass allow_unsafe_werkzeug=True to the run() method to disable this error.
+2025-10-08 21:35:16,436 - vision_inspection.gpio - ERROR - Failed to set OUT1: The GPIO channel has not been set up as an OUTPUT
+2025-10-08 21:35:16,436 - vision_inspection.gpio - ERROR - Failed to set OUT2: The GPIO channel has not been set up as an OUTPUT
+2025-10-08 21:35:16,436 - vision_inspection.gpio - ERROR - Failed to set OUT3: The GPIO channel has not been set up as an OUTPUT
+2025-10-08 21:35:16,436 - vision_inspection.gpio - ERROR - Failed to set OUT4: The GPIO channel has not been set up as an OUTPUT
+2025-10-08 21:35:16,436 - vision_inspection.gpio - ERROR - Failed to set OUT5: The GPIO channel has not been set up as an OUTPUT
+2025-10-08 21:35:16,436 - vision_inspection.gpio - ERROR - Failed to set OUT6: The GPIO channel has not been set up as an OUTPUT
+2025-10-08 21:35:16,437 - vision_inspection.gpio - ERROR - Failed to set OUT7: The GPIO channel has not been set up as an OUTPUT
+2025-10-08 21:35:16,437 - vision_inspection.gpio - ERROR - Failed to set OUT8: The GPIO channel has not been set up as an OUTPUT
+2025-10-08 21:35:16,437 - vision_inspection.gpio - INFO - All outputs reset to LOW
+2025-10-08 21:35:16,437 - vision_inspection.gpio - INFO - GPIO cleanup complete
+2025-10-08 21:35:40,541 - vision_inspection.app - INFO - === Vision Inspection System Starting ===
+2025-10-08 21:35:40,542 - vision_inspection.app - INFO - System: Vision Inspection System v1.0.0
+2025-10-08 21:35:40,543 - vision_inspection.app - INFO - CORS enabled for origins: ['http://localhost:3000']
+2025-10-08 21:35:40,543 - vision_inspection.app - INFO - Initializing database...
+2025-10-08 21:35:40,544 - vision_inspection.app - INFO - Database initialized successfully
+2025-10-08 21:35:40,544 - vision_inspection.app - INFO - Initializing hardware controllers...
+2025-10-08 21:35:40,545 - vision_inspection.camera - WARNING - No camera available - using test pattern
+2025-10-08 21:35:40,546 - vision_inspection.app - INFO - Camera controller initialized
+2025-10-08 21:35:40,546 - vision_inspection.gpio - ERROR - Failed to initialize GPIO: Cannot determine SOC peripheral base address
+2025-10-08 21:35:40,546 - vision_inspection.app - INFO - GPIO controller initialized
+2025-10-08 21:35:40,546 - vision_inspection.app - INFO - Initializing program manager...
+2025-10-08 21:35:40,546 - vision_inspection.program_manager - INFO - Program manager initialized
+2025-10-08 21:35:40,546 - vision_inspection.app - INFO - Program manager initialized
+2025-10-08 21:35:40,546 - vision_inspection.api - INFO - API initialized with dependencies
+2025-10-08 21:35:40,546 - vision_inspection.app - INFO - API initialized
+2025-10-08 21:35:40,576 - vision_inspection.app - INFO - API blueprint registered
+2025-10-08 21:35:40,606 - vision_inspection.websocket - INFO - WebSocket initialized with dependencies
+2025-10-08 21:35:40,606 - vision_inspection.app - INFO - WebSocket initialized
+2025-10-08 21:35:40,606 - vision_inspection.app - INFO - Application initialization complete
+2025-10-08 21:35:40,606 - vision_inspection.app - INFO - API available at: http://0.0.0.0:5000/api
+2025-10-08 21:35:40,609 - vision_inspection.app - INFO - Starting server on 0.0.0.0:5000 (debug=False)
+2025-10-08 21:35:59,410 - vision_inspection.camera - WARNING - Camera not available - generating test pattern
+2025-10-08 21:36:11,232 - vision_inspection.api - ERROR - List programs failed: no such column: is_active
+2025-10-08 21:37:25,497 - vision_inspection.api - ERROR - List programs failed: no such column: is_active
+2025-10-08 21:38:21,070 - vision_inspection.app - INFO - === Vision Inspection System Starting ===
+2025-10-08 21:38:21,070 - vision_inspection.app - INFO - System: Vision Inspection System v1.0.0
+2025-10-08 21:38:21,071 - vision_inspection.app - INFO - CORS enabled for origins: ['http://localhost:3000']
+2025-10-08 21:38:21,071 - vision_inspection.app - INFO - Initializing database...
+2025-10-08 21:38:21,072 - vision_inspection.app - INFO - Database initialized successfully
+2025-10-08 21:38:21,072 - vision_inspection.app - INFO - Initializing hardware controllers...
+2025-10-08 21:38:21,074 - vision_inspection.camera - WARNING - No camera available - using test pattern
+2025-10-08 21:38:21,074 - vision_inspection.app - INFO - Camera controller initialized
+2025-10-08 21:38:21,074 - vision_inspection.gpio - ERROR - Failed to initialize GPIO: Cannot determine SOC peripheral base address
+2025-10-08 21:38:21,074 - vision_inspection.app - INFO - GPIO controller initialized
+2025-10-08 21:38:21,074 - vision_inspection.app - INFO - Initializing program manager...
+2025-10-08 21:38:21,074 - vision_inspection.program_manager - INFO - Program manager initialized
+2025-10-08 21:38:21,074 - vision_inspection.app - INFO - Program manager initialized
+2025-10-08 21:38:21,074 - vision_inspection.api - INFO - API initialized with dependencies
+2025-10-08 21:38:21,074 - vision_inspection.app - INFO - API initialized
+2025-10-08 21:38:21,105 - vision_inspection.app - INFO - API blueprint registered
+2025-10-08 21:38:21,143 - vision_inspection.websocket - INFO - WebSocket initialized with dependencies
+2025-10-08 21:38:21,143 - vision_inspection.app - INFO - WebSocket initialized
+2025-10-08 21:38:21,144 - vision_inspection.app - INFO - Application initialization complete
+2025-10-08 21:38:21,144 - vision_inspection.app - INFO - API available at: http://0.0.0.0:5000/api
+2025-10-08 21:38:21,146 - vision_inspection.app - INFO - Starting server on 0.0.0.0:5000 (debug=False)
+2025-10-08 21:38:40,335 - vision_inspection.api - ERROR - List programs failed: no such column: is_active
+2025-10-08 21:39:47,857 - vision_inspection.app - INFO - === Vision Inspection System Starting ===
+2025-10-08 21:39:47,857 - vision_inspection.app - INFO - System: Vision Inspection System v1.0.0
+2025-10-08 21:39:47,858 - vision_inspection.app - INFO - CORS enabled for origins: ['http://localhost:3000']
+2025-10-08 21:39:47,858 - vision_inspection.app - INFO - Initializing database...
+2025-10-08 21:39:47,859 - vision_inspection.app - INFO - Database initialized successfully
+2025-10-08 21:39:47,860 - vision_inspection.app - INFO - Initializing hardware controllers...
+2025-10-08 21:39:47,861 - vision_inspection.camera - WARNING - No camera available - using test pattern
+2025-10-08 21:39:47,861 - vision_inspection.app - INFO - Camera controller initialized
+2025-10-08 21:39:47,861 - vision_inspection.gpio - ERROR - Failed to initialize GPIO: Cannot determine SOC peripheral base address
+2025-10-08 21:39:47,861 - vision_inspection.app - INFO - GPIO controller initialized
+2025-10-08 21:39:47,861 - vision_inspection.app - INFO - Initializing program manager...
+2025-10-08 21:39:47,861 - vision_inspection.program_manager - INFO - Program manager initialized
+2025-10-08 21:39:47,861 - vision_inspection.app - INFO - Program manager initialized
+2025-10-08 21:39:47,861 - vision_inspection.api - INFO - API initialized with dependencies
+2025-10-08 21:39:47,861 - vision_inspection.app - INFO - API initialized
+2025-10-08 21:39:47,892 - vision_inspection.app - INFO - API blueprint registered
+2025-10-08 21:39:47,919 - vision_inspection.websocket - INFO - WebSocket initialized with dependencies
+2025-10-08 21:39:47,919 - vision_inspection.app - INFO - WebSocket initialized
+2025-10-08 21:39:47,920 - vision_inspection.app - INFO - Application initialization complete
+2025-10-08 21:39:47,920 - vision_inspection.app - INFO - API available at: http://0.0.0.0:5000/api
+2025-10-08 21:39:47,922 - vision_inspection.app - INFO - Starting server on 0.0.0.0:5000 (debug=False)
+2025-10-08 21:39:56,071 - vision_inspection.camera - WARNING - Camera not available - generating test pattern
+2025-10-08 21:40:01,876 - vision_inspection.api - ERROR - List programs failed: no such column: is_active
+2025-10-08 21:41:04,723 - vision_inspection.app - INFO - === Vision Inspection System Starting ===
+2025-10-08 21:41:04,723 - vision_inspection.app - INFO - System: Vision Inspection System v1.0.0
+2025-10-08 21:41:04,724 - vision_inspection.app - INFO - CORS enabled for origins: ['http://localhost:3000']
+2025-10-08 21:41:04,724 - vision_inspection.app - INFO - Initializing database...
+2025-10-08 21:41:04,725 - vision_inspection.app - INFO - Database initialized successfully
+2025-10-08 21:41:04,725 - vision_inspection.app - INFO - Initializing hardware controllers...
+2025-10-08 21:41:04,726 - vision_inspection.camera - WARNING - No camera available - using test pattern
+2025-10-08 21:41:04,727 - vision_inspection.app - INFO - Camera controller initialized
+2025-10-08 21:41:04,727 - vision_inspection.gpio - ERROR - Failed to initialize GPIO: Cannot determine SOC peripheral base address
+2025-10-08 21:41:04,727 - vision_inspection.app - INFO - GPIO controller initialized
+2025-10-08 21:41:04,727 - vision_inspection.app - INFO - Initializing program manager...
+2025-10-08 21:41:04,727 - vision_inspection.program_manager - INFO - Program manager initialized
+2025-10-08 21:41:04,727 - vision_inspection.app - INFO - Program manager initialized
+2025-10-08 21:41:04,727 - vision_inspection.api - INFO - API initialized with dependencies
+2025-10-08 21:41:04,727 - vision_inspection.app - INFO - API initialized
+2025-10-08 21:41:04,759 - vision_inspection.app - INFO - API blueprint registered
+2025-10-08 21:41:04,783 - vision_inspection.websocket - INFO - WebSocket initialized with dependencies
+2025-10-08 21:41:04,783 - vision_inspection.app - INFO - WebSocket initialized
+2025-10-08 21:41:04,784 - vision_inspection.app - INFO - Application initialization complete
+2025-10-08 21:41:04,784 - vision_inspection.app - INFO - API available at: http://0.0.0.0:5000/api
+2025-10-08 21:41:04,786 - vision_inspection.app - INFO - Starting server on 0.0.0.0:5000 (debug=False)
+2025-10-08 21:42:13,052 - vision_inspection.app - INFO - === Vision Inspection System Starting ===
+2025-10-08 21:42:13,052 - vision_inspection.app - INFO - System: Vision Inspection System v1.0.0
+2025-10-08 21:42:13,053 - vision_inspection.app - INFO - CORS enabled for origins: ['http://localhost:3000']
+2025-10-08 21:42:13,053 - vision_inspection.app - INFO - Initializing database...
+2025-10-08 21:42:13,054 - vision_inspection.app - INFO - Database initialized successfully
+2025-10-08 21:42:13,054 - vision_inspection.app - INFO - Initializing hardware controllers...
+2025-10-08 21:42:13,056 - vision_inspection.camera - WARNING - No camera available - using test pattern
+2025-10-08 21:42:13,056 - vision_inspection.app - INFO - Camera controller initialized
+2025-10-08 21:42:13,056 - vision_inspection.gpio - ERROR - Failed to initialize GPIO: Cannot determine SOC peripheral base address
+2025-10-08 21:42:13,056 - vision_inspection.app - INFO - GPIO controller initialized
+2025-10-08 21:42:13,056 - vision_inspection.app - INFO - Initializing program manager...
+2025-10-08 21:42:13,056 - vision_inspection.program_manager - INFO - Program manager initialized
+2025-10-08 21:42:13,056 - vision_inspection.app - INFO - Program manager initialized
+2025-10-08 21:42:13,056 - vision_inspection.api - INFO - API initialized with dependencies
+2025-10-08 21:42:13,056 - vision_inspection.app - INFO - API initialized
+2025-10-08 21:42:13,089 - vision_inspection.app - INFO - API blueprint registered
+2025-10-08 21:42:13,123 - vision_inspection.websocket - INFO - WebSocket initialized with dependencies
+2025-10-08 21:42:13,123 - vision_inspection.app - INFO - WebSocket initialized
+2025-10-08 21:42:13,124 - vision_inspection.app - INFO - Application initialization complete
+2025-10-08 21:42:13,124 - vision_inspection.app - INFO - API available at: http://0.0.0.0:5000/api
+2025-10-08 21:42:13,127 - vision_inspection.app - INFO - Starting server on 0.0.0.0:5000 (debug=False)
+2025-10-08 21:42:22,669 - vision_inspection.camera - WARNING - Camera not available - generating test pattern
