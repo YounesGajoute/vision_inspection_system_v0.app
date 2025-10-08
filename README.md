@@ -2,6 +2,21 @@
 
 A production-ready, industrial-grade vision inspection system built for Raspberry Pi with HQ Camera Module. Features a modern Next.js frontend, robust Flask backend, and comprehensive computer vision tools for automated quality control.
 
+## 🚀 Quick Start - Run Complete Application
+
+```bash
+npm run dev:all
+```
+
+**That's it!** Both frontend and backend start with one command.
+- **Frontend:** http://localhost:3000
+- **Backend:** http://localhost:5000
+- **Monitoring:** http://localhost:5000/api/monitoring/health
+
+**Stop:** Press CTRL+C
+
+**See:** `START_HERE.md` for details
+
 ## 🎯 Features
 
 ### **4-Step Configuration Wizard**
