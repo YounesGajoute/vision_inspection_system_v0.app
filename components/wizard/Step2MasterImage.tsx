@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Camera, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
+import { Camera, CheckCircle2, AlertTriangle, Loader2, Upload, FileImage } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import type { CapturedImage } from '@/types';
@@ -33,7 +33,11 @@ export default function Step2MasterImage({
   const [capturedImage, setCapturedImage] = useState<string | null>(masterImageData);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [imageQuality, setImageQuality] = useState<any>(null);
+  const [imageSource, setImageSource] = useState<'camera' | 'upload' | null>(null);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   // Update captured image when masterImageData changes
@@ -55,6 +59,8 @@ export default function Step2MasterImage({
       setCapturedImage(result.image);
       setMasterImageData(result.image);
       setImageQuality(result.quality);
+      setImageSource('camera');
+      setUploadedFileName(null);
       
       // Check quality and warn if low
       if (result.quality.score < 70) {
@@ -78,6 +84,81 @@ export default function Step2MasterImage({
       });
     } finally {
       setIsCapturing(false);
+    }
+  };
+
+  const handleFileSelect = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Invalid File",
+        description: "Please select an image file (JPEG, PNG, etc.)",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        title: "File Too Large",
+        description: "Please select an image smaller than 10MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      // Read file as base64
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const result = e.target?.result as string;
+        // Extract base64 data (remove data:image/...;base64, prefix)
+        const base64Data = result.split(',')[1];
+        
+        setCapturedImage(base64Data);
+        setMasterImageData(base64Data);
+        setImageSource('upload');
+        setUploadedFileName(file.name);
+        setImageQuality(null); // Uploaded images don't have quality metrics
+        
+        toast({
+          title: "Image Loaded",
+          description: `Successfully loaded ${file.name}`,
+        });
+      };
+
+      reader.onerror = () => {
+        toast({
+          title: "Load Failed",
+          description: "Failed to read image file",
+          variant: "destructive",
+        });
+      };
+
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('File upload failed:', error);
+      toast({
+        title: "Upload Failed",
+        description: error instanceof Error ? error.message : "Failed to load image",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
+      // Reset file input
+      if (event.target) {
+        event.target.value = '';
+      }
     }
   };
 
@@ -145,13 +226,39 @@ export default function Step2MasterImage({
           <CardTitle>Instructions</CardTitle>
         </CardHeader>
         <CardContent>
-          <ol className="list-decimal list-inside space-y-2 text-sm">
-            <li>Place a high-quality reference sample in the inspection area</li>
-            <li>Ensure proper lighting and alignment</li>
-            <li>Capture the image using the settings from Step 1</li>
-            <li>Verify image quality metrics</li>
-            <li>Register the image as the master reference</li>
-          </ol>
+          <div className="space-y-4">
+            <div>
+              <h3 className="font-semibold mb-2 flex items-center gap-2">
+                <Camera className="h-4 w-4" />
+                Option 1: Capture from Camera
+              </h3>
+              <ol className="list-decimal list-inside space-y-2 text-sm ml-6">
+                <li>Place a high-quality reference sample in the inspection area</li>
+                <li>Ensure proper lighting and alignment</li>
+                <li>Capture the image using the settings from Step 1</li>
+                <li>Verify image quality metrics</li>
+              </ol>
+            </div>
+            <div className="border-t pt-4">
+              <h3 className="font-semibold mb-2 flex items-center gap-2">
+                <FileImage className="h-4 w-4" />
+                Option 2: Load from Computer
+              </h3>
+              <ol className="list-decimal list-inside space-y-2 text-sm ml-6">
+                <li>Click "Load from Computer" button</li>
+                <li>Select a high-quality reference image (JPEG, PNG, etc.)</li>
+                <li>Preview the loaded image</li>
+              </ol>
+              <p className="text-xs text-muted-foreground mt-2 ml-6">
+                * Maximum file size: 10MB | Supported formats: JPEG, PNG, BMP, TIFF
+              </p>
+            </div>
+            <div className="border-t pt-4">
+              <p className="text-sm font-semibold">
+                5. Register the image as the master reference
+              </p>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -205,13 +312,28 @@ export default function Step2MasterImage({
             </div>
           )}
 
+          {/* Image Source Info */}
+          {imageSource && (
+            <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg text-sm">
+              {imageSource === 'camera' ? (
+                <Camera className="h-4 w-4 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+              ) : (
+                <FileImage className="h-4 w-4 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+              )}
+              <span className="text-blue-900 dark:text-blue-100">
+                {imageSource === 'camera' 
+                  ? 'Image captured from camera' 
+                  : `Image loaded from: ${uploadedFileName}`}
+              </span>
+            </div>
+          )}
+
           {/* Action Buttons */}
-          <div className="flex gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <Button
               onClick={handleCapture}
-              disabled={isCapturing || isRegistering}
+              disabled={isCapturing || isRegistering || isUploading}
               size="lg"
-              className="flex-1"
               variant="default"
             >
               {isCapturing ? (
@@ -222,7 +344,26 @@ export default function Step2MasterImage({
               ) : (
                 <>
                   <Camera className="mr-2 h-4 w-4" />
-                  Capture Image
+                  Capture
+                </>
+              )}
+            </Button>
+
+            <Button
+              onClick={handleFileSelect}
+              disabled={isCapturing || isRegistering || isUploading}
+              size="lg"
+              variant="outline"
+            >
+              {isUploading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Loading...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Load File
                 </>
               )}
             </Button>
@@ -231,7 +372,6 @@ export default function Step2MasterImage({
               onClick={handleRegister}
               disabled={!capturedImage || masterImageRegistered || isRegistering}
               size="lg"
-              className="flex-1"
               variant={masterImageRegistered ? "secondary" : "default"}
             >
               {isRegistering ? (
@@ -247,11 +387,20 @@ export default function Step2MasterImage({
               ) : (
                 <>
                   <CheckCircle2 className="mr-2 h-4 w-4" />
-                  Register Master
+                  Register
                 </>
               )}
             </Button>
           </div>
+
+          {/* Hidden File Input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleFileChange}
+            className="hidden"
+          />
 
           {/* Registration Status */}
           {masterImageRegistered && (

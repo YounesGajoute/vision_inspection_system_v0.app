@@ -448,6 +448,283 @@ class DatabaseManager:
             
             return logs
     
+    # ==================== USER MANAGEMENT ====================
+    
+    def create_user(self, username: str, password_hash: str, role: str) -> int:
+        """
+        Create a new user.
+        
+        Args:
+            username: Username
+            password_hash: Hashed password
+            role: User role
+        
+        Returns:
+            User ID
+        """
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO users (username, password_hash, role)
+                VALUES (?, ?, ?)
+            """, (username, password_hash, role))
+            return cursor.lastrowid
+    
+    def get_user_by_id(self, user_id: int) -> Optional[Dict]:
+        """Get user by ID."""
+        with self._get_cursor() as cursor:
+            cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    
+    def get_user_by_username(self, username: str) -> Optional[Dict]:
+        """Get user by username."""
+        with self._get_cursor() as cursor:
+            cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    
+    def update_user_password(self, user_id: int, password_hash: str):
+        """Update user password."""
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                UPDATE users SET password_hash = ? WHERE id = ?
+            """, (password_hash, user_id))
+    
+    def update_last_login(self, user_id: int):
+        """Update last login timestamp."""
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?
+            """, (user_id,))
+    
+    def increment_failed_login_attempts(self, user_id: int):
+        """Increment failed login attempts counter."""
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                UPDATE users 
+                SET failed_login_attempts = failed_login_attempts + 1,
+                    last_failed_login = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (user_id,))
+    
+    def reset_failed_login_attempts(self, user_id: int):
+        """Reset failed login attempts counter."""
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                UPDATE users SET failed_login_attempts = 0 WHERE id = ?
+            """, (user_id,))
+    
+    def get_failed_login_attempts(self, user_id: int) -> int:
+        """Get number of failed login attempts."""
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                SELECT failed_login_attempts FROM users WHERE id = ?
+            """, (user_id,))
+            row = cursor.fetchone()
+            return row['failed_login_attempts'] if row else 0
+    
+    def lock_user_account(self, user_id: int):
+        """Lock user account."""
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                UPDATE users SET is_locked = 1 WHERE id = ?
+            """, (user_id,))
+    
+    def unlock_user_account(self, user_id: int):
+        """Unlock user account."""
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                UPDATE users 
+                SET is_locked = 0, failed_login_attempts = 0 
+                WHERE id = ?
+            """, (user_id,))
+    
+    def list_users(self) -> List[Dict]:
+        """List all users."""
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                SELECT id, username, role, is_active, is_locked, 
+                       created_at, last_login
+                FROM users
+                ORDER BY created_at DESC
+            """)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+    
+    def update_user(self, user_id: int, updates: Dict) -> bool:
+        """Update user properties."""
+        allowed_fields = ['role', 'is_active', 'is_locked']
+        
+        update_fields = []
+        values = []
+        
+        for field, value in updates.items():
+            if field in allowed_fields:
+                update_fields.append(f'{field} = ?')
+                values.append(value)
+        
+        if not update_fields:
+            return False
+        
+        values.append(user_id)
+        
+        with self._get_cursor() as cursor:
+            cursor.execute(f"""
+                UPDATE users SET {', '.join(update_fields)} WHERE id = ?
+            """, tuple(values))
+            return cursor.rowcount > 0
+    
+    def delete_user(self, user_id: int) -> bool:
+        """Soft delete user (set is_active = 0)."""
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                UPDATE users SET is_active = 0 WHERE id = ?
+            """, (user_id,))
+            return cursor.rowcount > 0
+    
+    # ==================== TOKEN MANAGEMENT ====================
+    
+    def store_refresh_token(self, user_id: int, token_hash: str, expires_at: datetime):
+        """Store refresh token."""
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+                VALUES (?, ?, ?)
+            """, (user_id, token_hash, expires_at))
+    
+    def is_token_revoked(self, token_hash: str) -> bool:
+        """Check if token is revoked."""
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                SELECT revoked FROM refresh_tokens WHERE token_hash = ?
+            """, (token_hash,))
+            row = cursor.fetchone()
+            return row['revoked'] if row else True
+    
+    def revoke_token(self, token_hash: str):
+        """Revoke a refresh token."""
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ?
+            """, (token_hash,))
+    
+    def revoke_all_user_tokens(self, user_id: int):
+        """Revoke all tokens for a user."""
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ?
+            """, (user_id,))
+    
+    def cleanup_expired_tokens(self):
+        """Delete expired tokens."""
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                DELETE FROM refresh_tokens WHERE expires_at < CURRENT_TIMESTAMP
+            """)
+    
+    # ==================== AUDIT LOGGING ====================
+    
+    def log_audit_event(
+        self,
+        user_id: int,
+        action: str,
+        resource_type: str = None,
+        resource_id: int = None,
+        details: Dict = None,
+        request_id: str = None,
+        ip_address: str = None
+    ):
+        """Log user action for audit trail."""
+        details_json = json.dumps(details) if details else None
+        
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO audit_log (
+                    user_id, action, resource_type, resource_id,
+                    details_json, request_id, ip_address
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (user_id, action, resource_type, resource_id, details_json, request_id, ip_address))
+    
+    def log_failed_login_attempt(self, username: str, reason: str, ip_address: str = None):
+        """Log failed login attempt."""
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO failed_login_attempts (username, reason, ip_address)
+                VALUES (?, ?, ?)
+            """, (username, reason, ip_address))
+    
+    def get_audit_log(
+        self,
+        user_id: int = None,
+        action: str = None,
+        resource_type: str = None,
+        limit: int = 100
+    ) -> List[Dict]:
+        """Get audit log entries."""
+        with self._get_cursor() as cursor:
+            query = "SELECT * FROM audit_log WHERE 1=1"
+            params = []
+            
+            if user_id:
+                query += " AND user_id = ?"
+                params.append(user_id)
+            
+            if action:
+                query += " AND action = ?"
+                params.append(action)
+            
+            if resource_type:
+                query += " AND resource_type = ?"
+                params.append(resource_type)
+            
+            query += " ORDER BY timestamp DESC LIMIT ?"
+            params.append(limit)
+            
+            cursor.execute(query, tuple(params))
+            rows = cursor.fetchall()
+            
+            logs = []
+            for row in rows:
+                log = dict(row)
+                if log.get('details_json'):
+                    log['details'] = json.loads(log['details_json'])
+                    del log['details_json']
+                logs.append(log)
+            
+            return logs
+    
+    # ==================== CONVENIENCE METHODS ====================
+    
+    def get_inspection_results(self, program_id: int = None, limit: int = 100, status_filter: str = None) -> List[Dict]:
+        """
+        Convenience method for get_inspection_history.
+        Get inspection results with optional filtering.
+        
+        Args:
+            program_id: Optional program ID to filter by
+            limit: Maximum number of results
+            status_filter: Optional status filter (OK or NG)
+            
+        Returns:
+            List of inspection result dictionaries
+        """
+        return self.get_inspection_history(program_id=program_id, limit=limit, status_filter=status_filter)
+    
+    def get_system_logs(self, level: str = None, category: str = None, limit: int = 100) -> List[Dict]:
+        """
+        Convenience method for get_logs.
+        Get system logs with optional filtering.
+        
+        Args:
+            level: Optional log level filter
+            category: Optional category filter
+            limit: Maximum number of results
+            
+        Returns:
+            List of log dictionaries
+        """
+        return self.get_logs(level=level, category=category, limit=limit)
+    
     def close(self):
         """Close database connection."""
         if hasattr(self._local, 'connection'):

@@ -10,12 +10,21 @@ from flask_cors import CORS
 sys.path.insert(0, os.path.dirname(__file__))
 
 from src.api.routes import api, init_api
+from src.api.backup_routes import backup_api, init_backup_api
+from src.api.monitoring_routes import monitoring_api
 from src.api.websocket import socketio, init_websocket
 from src.database.db_manager import DatabaseManager, set_db
+from src.database.migration_manager import MigrationManager
 from src.core.program_manager import ProgramManager
 from src.hardware.camera import CameraController
 from src.hardware.gpio_controller import GPIOController
 from src.utils.logger import setup_logging, get_logger
+from src.monitoring import (
+    init_metrics_collector,
+    init_performance_tracker,
+    init_system_monitor,
+    init_alert_manager
+)
 
 
 def load_config(config_path='config.yaml'):
@@ -65,6 +74,24 @@ def create_app(config_path='config.yaml'):
         db_manager = DatabaseManager(config['database']['path'])
         set_db(db_manager)
         logger.info("Database initialized successfully")
+        
+        # Initialize migration manager and apply pending migrations
+        logger.info("Checking database migrations...")
+        migration_manager = MigrationManager(config['database']['path'])
+        
+        # Check for pending migrations
+        pending = migration_manager.list_pending_migrations()
+        if pending:
+            logger.info(f"Found {len(pending)} pending migration(s)")
+            successful, failed = migration_manager.apply_all_pending(dry_run=False)
+            if failed > 0:
+                logger.error(f"Migration failed: {failed} migration(s) failed")
+                logger.warning("Continuing with current schema version")
+            else:
+                logger.info(f"Successfully applied {successful} migration(s)")
+        else:
+            logger.info(f"Database schema up to date (version {migration_manager.get_current_version()})")
+        
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
         sys.exit(1)
@@ -99,13 +126,50 @@ def create_app(config_path='config.yaml'):
         logger.error(f"Program manager initialization failed: {e}")
         sys.exit(1)
     
+    # Initialize monitoring system
+    try:
+        logger.info("Initializing monitoring system...")
+        
+        # Metrics collector
+        metrics_collector = init_metrics_collector(
+            db_manager,
+            buffer_size=1000,
+            flush_interval=10
+        )
+        
+        # Performance tracker
+        performance_tracker = init_performance_tracker(metrics_collector)
+        
+        # System monitor (checks every 5 seconds)
+        system_monitor = init_system_monitor(
+            metrics_collector,
+            interval=5
+        )
+        
+        # Alert manager
+        alert_manager = init_alert_manager(db_manager, metrics_collector)
+        
+        logger.info("Monitoring system initialized successfully")
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize monitoring system: {e}")
+        logger.warning("Continuing without monitoring (graceful degradation)")
+    
     # Initialize API with dependencies
     init_api(program_manager, camera_controller, gpio_controller)
     logger.info("API initialized")
     
+    # Initialize backup API
+    backup_storage_path = config.get('storage', {}).get('backups', './storage/backups')
+    os.makedirs(backup_storage_path, exist_ok=True)
+    init_backup_api(program_manager, db_manager, backup_storage_path)
+    logger.info("Backup API initialized")
+    
     # Register blueprints
     app.register_blueprint(api, url_prefix='/api')
-    logger.info("API blueprint registered")
+    app.register_blueprint(backup_api, url_prefix='/api/backup')
+    app.register_blueprint(monitoring_api, url_prefix='/api/monitoring')
+    logger.info("API blueprints registered")
     
     # Initialize SocketIO with dependencies
     socketio.init_app(
