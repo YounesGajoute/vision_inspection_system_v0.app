@@ -26,6 +26,10 @@ export default function Step3ToolConfiguration({
   masterImageData,
 }: Step3Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const masterImageRef = useRef<HTMLImageElement | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  
   const [selectedToolType, setSelectedToolType] = useState<ToolType | null>(null);
   const [threshold, setThreshold] = useState([65]);
   const [editMode, setEditMode] = useState<EditMode>('none');
@@ -35,57 +39,109 @@ export default function Step3ToolConfiguration({
   const [activeHandle, setActiveHandle] = useState<ResizeHandle>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [hoverHandle, setHoverHandle] = useState<ResizeHandle>(null);
+  const [needsRedraw, setNeedsRedraw] = useState(false);
   const { toast } = useToast();
 
-  // Draw canvas whenever tools or master image changes
+  // Load and cache master image
   useEffect(() => {
-    drawCanvas();
-  }, [configuredTools, currentRect, masterImageData, editMode]);
+    if (masterImageData) {
+      const img = new Image();
+      img.onload = () => {
+        masterImageRef.current = img;
+        // Create offscreen canvas for double buffering
+        if (!offscreenCanvasRef.current) {
+          offscreenCanvasRef.current = document.createElement('canvas');
+          offscreenCanvasRef.current.width = 640;
+          offscreenCanvasRef.current.height = 480;
+        }
+        setNeedsRedraw(true);
+      };
+      img.src = `data:image/jpeg;base64,${masterImageData}`;
+    } else {
+      masterImageRef.current = null;
+      setNeedsRedraw(true);
+    }
+  }, [masterImageData]);
+
+  // Optimized rendering loop using requestAnimationFrame
+  useEffect(() => {
+    if (needsRedraw) {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      animationFrameRef.current = requestAnimationFrame(() => {
+        drawCanvas();
+        setNeedsRedraw(false);
+      });
+    }
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [needsRedraw]);
+
+  // Trigger redraw on state changes
+  useEffect(() => {
+    setNeedsRedraw(true);
+  }, [configuredTools, currentRect, editMode, hoverHandle]);
 
   const drawCanvas = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
 
-    // Clear canvas
-    ctx.clearRect(0, 0, 640, 480);
+    // Use offscreen canvas for double buffering to eliminate flicker
+    const offscreen = offscreenCanvasRef.current;
+    const offscreenCtx = offscreen?.getContext('2d', { alpha: false });
+    
+    const drawingContext = offscreenCtx || ctx;
+    const targetCanvas = offscreen || canvas;
 
-    // Draw master image if available
-    if (masterImageData) {
-      const img = new Image();
-      img.onload = () => {
-        ctx.drawImage(img, 0, 0, 640, 480);
-        drawROIs(ctx);
-      };
-      img.src = `data:image/jpeg;base64,${masterImageData}`;
+    // Clear canvas with solid background (no alpha for better performance)
+    drawingContext.fillStyle = '#1e293b';
+    drawingContext.fillRect(0, 0, 640, 480);
+
+    // Draw cached master image if available (no reload needed!)
+    if (masterImageRef.current) {
+      drawingContext.drawImage(masterImageRef.current, 0, 0, 640, 480);
     } else {
       // Draw placeholder
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(0, 0, 640, 480);
-      ctx.fillStyle = '#64748b';
-      ctx.font = '20px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('No master image', 320, 240);
-      drawROIs(ctx);
+      drawingContext.fillStyle = '#64748b';
+      drawingContext.font = '20px sans-serif';
+      drawingContext.textAlign = 'center';
+      drawingContext.fillText('No master image', 320, 240);
+    }
+
+    // Draw all ROIs on the same context
+    drawROIs(drawingContext);
+
+    // Copy offscreen canvas to main canvas in one operation (eliminates flicker)
+    if (offscreen && offscreenCtx) {
+      ctx.drawImage(offscreen, 0, 0);
     }
   };
 
   const drawROIs = (ctx: CanvasRenderingContext2D) => {
+    // Batch drawing operations for better performance
+    ctx.save();
+
     // Draw all configured tool ROIs
     configuredTools.forEach((tool, index) => {
       ctx.strokeStyle = tool.color;
       ctx.lineWidth = 3;
       ctx.strokeRect(tool.roi.x, tool.roi.y, tool.roi.width, tool.roi.height);
 
-      // Draw label
+      // Draw label with background
       ctx.fillStyle = tool.color;
       ctx.fillRect(tool.roi.x, tool.roi.y - 25, 150, 25);
       ctx.fillStyle = 'white';
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText(`${index + 1}. ${tool.name}`, tool.roi.x + 5, tool.roi.y - 8);
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`${index + 1}. ${tool.name}`, tool.roi.x + 5, tool.roi.y - 12);
     });
 
     // Draw current rectangle being drawn/edited
@@ -97,6 +153,8 @@ export default function Step3ToolConfiguration({
         
         if (editMode === 'drawing') {
           ctx.setLineDash([5, 5]);
+        } else {
+          ctx.setLineDash([]);
         }
         
         ctx.strokeRect(currentRect.x, currentRect.y, currentRect.width, currentRect.height);
@@ -108,28 +166,45 @@ export default function Step3ToolConfiguration({
         }
       }
     }
+
+    ctx.restore();
   };
 
   const drawResizeHandles = (ctx: CanvasRenderingContext2D, roi: ROI, color: string) => {
-    const handleSize = 10; // Increased from 8 for better visibility
+    const handleSize = 10;
+    const halfSize = handleSize / 2;
+    
+    // Pre-calculate positions
+    const midX = roi.x + roi.width / 2;
+    const midY = roi.y + roi.height / 2;
+    const rightX = roi.x + roi.width;
+    const bottomY = roi.y + roi.height;
+    
     const handles = [
-      { x: roi.x, y: roi.y }, // top-left
-      { x: roi.x + roi.width, y: roi.y }, // top-right
-      { x: roi.x, y: roi.y + roi.height }, // bottom-left
-      { x: roi.x + roi.width, y: roi.y + roi.height }, // bottom-right
-      { x: roi.x + roi.width / 2, y: roi.y }, // top
-      { x: roi.x + roi.width / 2, y: roi.y + roi.height }, // bottom
-      { x: roi.x, y: roi.y + roi.height / 2 }, // left
-      { x: roi.x + roi.width, y: roi.y + roi.height / 2 }, // right
+      { x: roi.x, y: roi.y },           // top-left
+      { x: rightX, y: roi.y },          // top-right
+      { x: roi.x, y: bottomY },         // bottom-left
+      { x: rightX, y: bottomY },        // bottom-right
+      { x: midX, y: roi.y },            // top
+      { x: midX, y: bottomY },          // bottom
+      { x: roi.x, y: midY },            // left
+      { x: rightX, y: midY },           // right
     ];
 
+    // Batch draw all handles with same style
+    ctx.save();
+    ctx.fillStyle = 'white';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    
     handles.forEach(handle => {
-      ctx.fillStyle = 'white';
-      ctx.fillRect(handle.x - handleSize / 2, handle.y - handleSize / 2, handleSize, handleSize);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(handle.x - handleSize / 2, handle.y - handleSize / 2, handleSize, handleSize);
+      const hx = handle.x - halfSize;
+      const hy = handle.y - halfSize;
+      ctx.fillRect(hx, hy, handleSize, handleSize);
+      ctx.strokeRect(hx, hy, handleSize, handleSize);
     });
+    
+    ctx.restore();
   };
 
   const getHandleAtPosition = (x: number, y: number, roi: ROI): ResizeHandle => {
@@ -231,7 +306,9 @@ export default function Step3ToolConfiguration({
     // Update hover state in edit mode (when not actively dragging)
     if (editMode === 'editing' && currentRect && !activeHandle) {
       const handle = getHandleAtPosition(x, y, currentRect);
-      setHoverHandle(handle);
+      if (handle !== hoverHandle) {
+        setHoverHandle(handle);
+      }
     }
 
     // Drawing new ROI
@@ -239,12 +316,15 @@ export default function Step3ToolConfiguration({
       const width = x - startPoint.x;
       const height = y - startPoint.y;
 
-      setCurrentRect({
+      const newRect = {
         x: width < 0 ? x : startPoint.x,
         y: height < 0 ? y : startPoint.y,
         width: Math.abs(width),
         height: Math.abs(height),
-      });
+      };
+      
+      setCurrentRect(newRect);
+      setNeedsRedraw(true);
       return;
     }
 
@@ -342,6 +422,7 @@ export default function Step3ToolConfiguration({
 
       setCurrentRect(newRect);
       setDragStart({ x, y });
+      setNeedsRedraw(true);
     }
   };
 
