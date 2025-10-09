@@ -57,6 +57,7 @@ ProtectHome=read-only
 ReadWritePaths=/home/Bot/Desktop/vision_inspection_system_v0.app/backend/storage
 ReadWritePaths=/home/Bot/Desktop/vision_inspection_system_v0.app/backend/logs
 ReadWritePaths=/home/Bot/Desktop/vision_inspection_system_v0.app/backend/data
+ReadWritePaths=/home/Bot/Desktop/vision_inspection_system_v0.app/backend/database
 
 # Logging
 StandardOutput=journal
