@@ -20,10 +20,10 @@ npm run dev:all
 ## 🎯 Features
 
 ### **4-Step Configuration Wizard**
-- **Step 1:** Image Optimization - Configure trigger mode and auto-optimize camera settings
+- **Step 1:** Image Optimization - Auto-optimize camera brightness and focus settings
 - **Step 2:** Master Image Registration - Capture and register reference images
 - **Step 3:** Tool Configuration - Draw ROIs and configure 5 types of inspection tools
-- **Step 4:** Output Assignment - Configure GPIO outputs and save programs
+- **Step 4:** IO Assignment Configuration - Configure trigger mode, GPIO outputs and save programs
 
 ### **5 Vision Inspection Tools**
 1. **Outline Tool** - Shape-based matching using contour comparison
@@ -128,8 +128,6 @@ npm run dev
    - Click "New Program" or go to `/configure`
 
 2. **Step 1: Image Optimization**
-   - Choose trigger type (Internal timer or External GPIO)
-   - Set trigger interval or delay
    - Select brightness mode (Normal, HDR, or High Gain)
    - Adjust focus value (0-100%)
    - Click "Auto-Optimize" for automatic settings
@@ -147,7 +145,9 @@ npm run dev
    - Repeat for all inspection areas (max 16 tools)
    - Maximum 1 position adjustment tool per program
 
-5. **Step 4: Output Assignment**
+5. **Step 4: IO Assignment Configuration**
+   - Choose trigger type (Internal timer or External GPIO)
+   - Set trigger interval or delay
    - Enter program name
    - Configure custom outputs (OUT4-OUT8)
    - Review configuration summary

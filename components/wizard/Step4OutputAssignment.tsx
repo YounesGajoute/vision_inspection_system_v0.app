@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   Select,
   SelectContent,
@@ -24,6 +25,11 @@ interface Step4Props {
   outputAssignments: OutputAssignment;
   setOutputAssignments: (assignments: OutputAssignment) => void;
   triggerType: 'internal' | 'external';
+  setTriggerType: (type: 'internal' | 'external') => void;
+  triggerInterval: string;
+  setTriggerInterval: (value: string) => void;
+  externalDelay: string;
+  setExternalDelay: (value: string) => void;
   brightnessMode: string;
   focusValue: number;
   masterImageRegistered: boolean;
@@ -37,6 +43,11 @@ export default function Step4OutputAssignment({
   outputAssignments,
   setOutputAssignments,
   triggerType,
+  setTriggerType,
+  triggerInterval,
+  setTriggerInterval,
+  externalDelay,
+  setExternalDelay,
   brightnessMode,
   focusValue,
   masterImageRegistered,
@@ -121,11 +132,96 @@ export default function Step4OutputAssignment({
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-bold">Step 4: Output Assignment & Save</h2>
+        <h2 className="text-3xl font-bold">Step 4: IO Assignment Configuration & Save</h2>
         <p className="text-muted-foreground mt-2">
-          Configure GPIO outputs and save your inspection program
+          Configure trigger mode, GPIO outputs and save your inspection program
         </p>
       </div>
+
+      {/* IO Assignment Configuration (Trigger Configuration) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>IO Assignment Configuration</CardTitle>
+          <CardDescription>
+            Configure input trigger mode and timing settings
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Trigger Type Radio Group */}
+          <div className="space-y-3">
+            <Label className="text-base font-semibold">Trigger Type</Label>
+            <RadioGroup 
+              value={triggerType} 
+              onValueChange={(value) => setTriggerType(value as 'internal' | 'external')}
+            >
+              <div className="flex items-start space-x-3 p-4 border rounded-lg hover:bg-accent/50 transition-colors">
+                <RadioGroupItem value="internal" id="internal" className="mt-1" />
+                <div className="flex-1">
+                  <Label htmlFor="internal" className="text-base font-medium cursor-pointer">
+                    Internal (Timer-based)
+                  </Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Automatically trigger inspections at regular time intervals
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-start space-x-3 p-4 border rounded-lg hover:bg-accent/50 transition-colors">
+                <RadioGroupItem value="external" id="external" className="mt-1" />
+                <div className="flex-1">
+                  <Label htmlFor="external" className="text-base font-medium cursor-pointer">
+                    External (GPIO trigger)
+                  </Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Trigger inspections from external GPIO input signal
+                  </p>
+                </div>
+              </div>
+            </RadioGroup>
+          </div>
+
+          {/* Conditional Inputs */}
+          {triggerType === 'internal' ? (
+            <div className="space-y-2">
+              <Label htmlFor="interval" className="text-base font-semibold">
+                Interval (milliseconds)
+              </Label>
+              <Input
+                id="interval"
+                type="number"
+                min={1}
+                max={10000}
+                value={triggerInterval}
+                onChange={(e) => setTriggerInterval(e.target.value)}
+                placeholder="1000"
+                className="max-w-xs"
+              />
+              <p className="text-sm text-muted-foreground">
+                Valid range: 1-10,000 ms (1 ms to 10 seconds)
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="delay" className="text-base font-semibold">
+                Delay (milliseconds)
+              </Label>
+              <Input
+                id="delay"
+                type="number"
+                min={0}
+                max={1000}
+                value={externalDelay}
+                onChange={(e) => setExternalDelay(e.target.value)}
+                placeholder="0"
+                className="max-w-xs"
+              />
+              <p className="text-sm text-muted-foreground">
+                Valid range: 0-1,000 ms (delay after GPIO trigger signal)
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Program Name */}
       <Card>

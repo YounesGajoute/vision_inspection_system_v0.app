@@ -53,23 +53,17 @@ export default function ConfigurePage() {
   });
 
   const steps = [
-    { number: 1, title: 'Image Optimization', description: 'Configure trigger and camera settings' },
+    { number: 1, title: 'Image Optimization', description: 'Configure camera settings' },
     { number: 2, title: 'Master Image', description: 'Capture reference image' },
     { number: 3, title: 'Tool Configuration', description: 'Define inspection tools' },
-    { number: 4, title: 'Output Assignment', description: 'Configure outputs and save' },
+    { number: 4, title: 'IO Assignment', description: 'Configure trigger and outputs' },
   ];
 
   const canGoNext = () => {
     switch (currentStep) {
       case 1:
-        // Validate trigger settings
-        if (triggerType === 'internal') {
-          const interval = parseInt(triggerInterval);
-          return interval >= 1 && interval <= 10000;
-        } else {
-          const delay = parseInt(externalDelay);
-          return delay >= 0 && delay <= 1000;
-        }
+        // Step 1 always allows proceeding (no validation required)
+        return true;
       case 2:
         return masterImageRegistered;
       case 3:
@@ -176,12 +170,6 @@ export default function ConfigurePage() {
       <div className="mb-8">
         {currentStep === 1 && (
           <Step1ImageOptimization
-            triggerType={triggerType}
-            setTriggerType={setTriggerType}
-            triggerInterval={triggerInterval}
-            setTriggerInterval={setTriggerInterval}
-            externalDelay={externalDelay}
-            setExternalDelay={setExternalDelay}
             brightnessMode={brightnessMode}
             setBrightnessMode={setBrightnessMode}
             focusValue={focusValue}
@@ -217,6 +205,11 @@ export default function ConfigurePage() {
             outputAssignments={outputAssignments}
             setOutputAssignments={setOutputAssignments}
             triggerType={triggerType}
+            setTriggerType={setTriggerType}
+            triggerInterval={triggerInterval}
+            setTriggerInterval={setTriggerInterval}
+            externalDelay={externalDelay}
+            setExternalDelay={setExternalDelay}
             brightnessMode={brightnessMode}
             focusValue={focusValue[0]}
             masterImageRegistered={masterImageRegistered}

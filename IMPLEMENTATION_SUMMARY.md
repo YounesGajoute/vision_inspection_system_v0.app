@@ -173,26 +173,27 @@ All 5 phases have been successfully implemented with production-ready code.
 
 #### Configuration Wizard (4 Complete Steps)
 **Files:**
-- ✅ `components/wizard/Step1ImageOptimization.tsx` (211 lines)
-  - Trigger configuration (internal/external)
+- ✅ `components/wizard/Step1ImageOptimization.tsx`
   - Brightness mode selection
   - Focus adjustment slider
   - Auto-optimize button
 
-- ✅ `components/wizard/Step2MasterImage.tsx` (231 lines)
+- ✅ `components/wizard/Step2MasterImage.tsx`
   - Live image capture
   - Quality metrics display
   - Master image registration
   - Real-time quality validation
 
-- ✅ `components/wizard/Step3ToolConfiguration.tsx` (257 lines)
+- ✅ `components/wizard/Step3ToolConfiguration.tsx`
   - Interactive canvas drawing
   - 5 tool types selection
   - ROI visualization
   - Threshold configuration
   - Tool list with delete
 
-- ✅ `components/wizard/Step4OutputAssignment.tsx` (242 lines)
+- ✅ `components/wizard/Step4OutputAssignment.tsx`
+  - IO Assignment configuration (trigger mode)
+  - Trigger configuration (internal/external)
   - Program naming
   - GPIO output configuration
   - Configuration summary
