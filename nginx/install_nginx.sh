@@ -175,7 +175,7 @@ echo -e "${BLUE}→ Installing nginx configuration...${NC}"
 
 # Copy configuration files
 cp "$SCRIPT_DIR/vision-inspection.conf" /etc/nginx/sites-available/
-cp "$SCRIPT_DIR/vision-inspection-common.conf" /etc/nginx/conf.d/
+cp "$SCRIPT_DIR/vision-inspection-common.conf" /etc/nginx/sites-available/
 
 # Update domain name in config
 sed -i "s/server_name vision.local localhost;/server_name $DOMAIN;/g" \

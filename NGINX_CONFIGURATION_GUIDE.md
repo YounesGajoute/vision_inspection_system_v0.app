@@ -463,9 +463,9 @@ curl -I http://localhost/socket.io/
 ### Nginx Configuration
 
 ```
-/etc/nginx/sites-available/vision-inspection.conf    # Main config
-/etc/nginx/conf.d/vision-inspection-common.conf      # Common settings
-/etc/nginx/sites-enabled/vision-inspection.conf      # Symlink (enabled)
+/etc/nginx/sites-available/vision-inspection.conf         # Main config
+/etc/nginx/sites-available/vision-inspection-common.conf  # Common settings
+/etc/nginx/sites-enabled/vision-inspection.conf           # Symlink (enabled)
 ```
 
 ### SSL Certificates
@@ -786,7 +786,7 @@ sudo certbot --nginx -d your-domain.com
 
 ```bash
 sudo cp nginx/vision-inspection.conf /etc/nginx/sites-available/
-sudo cp nginx/vision-inspection-common.conf /etc/nginx/conf.d/
+sudo cp nginx/vision-inspection-common.conf /etc/nginx/sites-available/
 ```
 
 ### 4. Enable Site
