@@ -1,1041 +1,1100 @@
 "use client"
-import { useState, useRef, useEffect } from "react"
+
+/**
+ * Production Run/Inspection Program Page
+ * Real-time vision inspection with live camera feed, GPIO control, and statistics
+ */
+
+import { useState, useRef, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Play,
   Pause,
-  StampIcon as StopIcon,
-  Settings,
-  ChevronDown,
+  Square,
+  Camera,
   CheckCircle2,
   XCircle,
   Activity,
   Clock,
   TrendingUp,
-  BarChart3,
+  Zap,
+  ArrowLeft,
+  Settings,
   Download,
-  ImageIcon,
+  AlertCircle,
+  Target,
+  RefreshCw,
 } from "lucide-react"
-import {
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
-  Bar,
-  BarChart,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Legend,
-  ResponsiveContainer,
-  Cell,
-} from "recharts"
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { storage, Program } from "@/lib/storage"
+import { ws } from "@/lib/websocket"
+import { processInspection, extractMasterFeatures } from "@/lib/inspection-engine"
+import type {
+  ToolConfig,
+  ToolResult,
+  InspectionResult as TypedInspectionResult,
+  OutputAssignment,
+  OutputCondition,
+} from "@/types"
 
-interface Tool {
-  id: string
-  type: string
-  name: string
-  color: string
-  roi: { x: number; y: number; width: number; height: number }
-  threshold: number
-  matchRate?: number
-  status?: "OK" | "NG"
-}
+// ==================== INTERFACES ====================
 
-interface InspectionImage {
+interface InspectionResult {
   id: string
   timestamp: Date
+  programId: string | number
   status: "OK" | "NG"
+  overallConfidence: number
   processingTime: number
-  imageData: string
+  toolResults: ToolResult[]
+  image: string
+  positionOffset?: { x: number; y: number }
 }
 
-export default function ProductionMode() {
+interface Statistics {
+  totalInspected: number
+  passed: number
+  failed: number
+  passRate: number
+  avgProcessingTime: number
+  currentCycleTime: number
+  avgConfidence: number
+  uptime: number
+}
+
+interface GPIOOutput {
+  pin: string
+  name: string
+  state: boolean
+  color: string
+  condition: OutputCondition
+}
+
+// ==================== MAIN COMPONENT ====================
+
+export default function RunInspectionPage() {
+  // ========== STATE MANAGEMENT ==========
+  
+  // Program Management
+  const [programs, setPrograms] = useState<Program[]>([])
+  const [selectedProgramId, setSelectedProgramId] = useState<string>("")
+  const [selectedProgram, setSelectedProgram] = useState<Program | null>(null)
+  
+  // Inspection State
   const [isRunning, setIsRunning] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
-  const [showConfig, setShowConfig] = useState(false)
-  const [showStats, setShowStats] = useState(false)
-  const [showHistory, setShowHistory] = useState(false)
-  const [imageFilter, setImageFilter] = useState<"ALL" | "OK" | "NG">("ALL")
-  const [selectedImage, setSelectedImage] = useState<InspectionImage | null>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-
-  // Program data - loaded from storage or fallback
-  const [programInfo, setProgramInfo] = useState({
-    id: "PRG-001",
-    name: "PCB Assembly Check",
-  })
-  const [currentProgram, setCurrentProgram] = useState<Program | null>(null)
-
-  // Tools loaded from program configuration
-  const [tools, setTools] = useState<Tool[]>([])
-
-  // Statistics
-  const [stats, setStats] = useState({
-    totalInspections: 0,
-    okCount: 0,
-    ngCount: 0,
-    currentCycleTime: 0,
-    avgCycleTime: 0,
-    minCycleTime: 0,
-    maxCycleTime: 0,
-  })
-
-  const [processingTimeHistory, setProcessingTimeHistory] = useState<Array<{ time: string; value: number }>>([])
-  const [inspectionRateHistory, setInspectionRateHistory] = useState<Array<{ time: string; ok: number; ng: number }>>(
-    [],
-  )
-  const [imageHistory, setImageHistory] = useState<InspectionImage[]>([])
-
-  const [toolResults, setToolResults] = useState<Tool[]>([])
   const [currentStatus, setCurrentStatus] = useState<"IDLE" | "RUNNING" | "OK" | "NG">("IDLE")
-
-  // Load program from storage on mount
+  
+  // Image & Results
+  const [currentFrame, setCurrentFrame] = useState<string>("")
+  const [currentResult, setCurrentResult] = useState<InspectionResult | null>(null)
+  const [recentResults, setRecentResults] = useState<InspectionResult[]>([])
+  
+  // Statistics
+  const [statistics, setStatistics] = useState<Statistics>({
+    totalInspected: 0,
+    passed: 0,
+    failed: 0,
+    passRate: 0,
+    avgProcessingTime: 0,
+    currentCycleTime: 0,
+    avgConfidence: 0,
+    uptime: 0,
+  })
+  
+  // GPIO Outputs
+  const [gpioOutputs, setGpioOutputs] = useState<GPIOOutput[]>([])
+  
+  // Master Features
+  const [masterFeatures, setMasterFeatures] = useState<Record<string, any>>({})
+  
+  // Loading State
+  const [isLoadingPrograms, setIsLoadingPrograms] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  
+  // Refs
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const inspectionTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const startTimeRef = useRef<number>(0)
+  const wsConnectedRef = useRef<boolean>(false)
+  
+  // ========== LOAD PROGRAMS ON MOUNT ==========
+  
   useEffect(() => {
-    const loadProgram = () => {
+    loadPrograms()
+  }, [])
+  
+  const loadPrograms = async () => {
+    setIsLoadingPrograms(true)
+    setLoadError(null)
+    
+    try {
+      let loadedPrograms: Program[] = []
+      
+      // Try to load from backend API first
       try {
-        // Get program ID from URL params or use default
-        const urlParams = new URLSearchParams(window.location.search)
-        const programId = urlParams.get('id') || 'PRG-001'
+        const response = await fetch('/api/programs', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        })
         
-        const program = storage.getProgram(programId)
-        if (program) {
-          setCurrentProgram(program)
-          setProgramInfo({
-            id: program.id,
-            name: program.name
-          })
-          
-          // Load tools from program configuration
-          if (program.config.tools && program.config.tools.length > 0) {
-            const configuredTools: Tool[] = program.config.tools.map((tool: any, index: number) => ({
-              id: tool.id || `${tool.type}-${index}`,
-              type: tool.type,
-              name: tool.name,
-              color: tool.color,
-              roi: tool.roi,
-              threshold: tool.threshold,
-              matchRate: 0,
-              status: "OK" as const,
-            }))
-            setTools(configuredTools)
-          } else {
-            // Fallback to default tools if no tools configured
-            const defaultTools: Tool[] = [
-              {
-                id: "1",
-                type: "pattern",
-                name: "Pattern Match",
-                color: "#3b82f6",
-                roi: { x: 50, y: 50, width: 150, height: 100 },
-                threshold: 85,
-                matchRate: 0,
-                status: "OK",
-              },
-              {
-                id: "2",
-                type: "edge",
-                name: "Edge Detection",
-                color: "#10b981",
-                roi: { x: 250, y: 100, width: 180, height: 120 },
-                threshold: 75,
-                matchRate: 0,
-                status: "OK",
-              },
-              {
-                id: "3",
-                type: "blob",
-                name: "Blob Analysis",
-                color: "#eab308",
-                roi: { x: 450, y: 150, width: 140, height: 140 },
-                threshold: 90,
-                matchRate: 0,
-                status: "OK",
-              },
-            ]
-            setTools(defaultTools)
-          }
-          
-          // Update stats from stored program
-          setStats({
-            totalInspections: program.totalInspections,
-            okCount: program.okCount,
-            ngCount: program.ngCount,
-            currentCycleTime: 0,
-            avgCycleTime: 0,
-            minCycleTime: 0,
-            maxCycleTime: 0,
-          })
+        if (response.ok) {
+          const data = await response.json()
+          loadedPrograms = data.programs || data || []
+          console.log(`Loaded ${loadedPrograms.length} programs from API`)
         } else {
-          // Program not found, use default tools
-          const defaultTools: Tool[] = [
-            {
-              id: "1",
-              type: "pattern",
-              name: "Pattern Match",
-              color: "#3b82f6",
-              roi: { x: 50, y: 50, width: 150, height: 100 },
-              threshold: 85,
-              matchRate: 0,
-              status: "OK",
-            },
-            {
-              id: "2",
-              type: "edge",
-              name: "Edge Detection",
-              color: "#10b981",
-              roi: { x: 250, y: 100, width: 180, height: 120 },
-              threshold: 75,
-              matchRate: 0,
-              status: "OK",
-            },
-            {
-              id: "3",
-              type: "blob",
-              name: "Blob Analysis",
-              color: "#eab308",
-              roi: { x: 450, y: 150, width: 140, height: 140 },
-              threshold: 90,
-              matchRate: 0,
-              status: "OK",
-            },
-          ]
-          setTools(defaultTools)
+          console.warn('API response not OK, falling back to localStorage')
+          throw new Error('API failed')
         }
-      } catch (error) {
-        console.error("Failed to load program:", error)
+      } catch (apiError) {
+        console.warn('Failed to load from API, trying localStorage:', apiError)
+        
+        // Fallback to localStorage
+        loadedPrograms = storage.getAllPrograms()
+        console.log(`Loaded ${loadedPrograms.length} programs from localStorage`)
       }
+      
+      // Filter out invalid programs
+      const validPrograms = loadedPrograms.filter(p => 
+        p && p.id && p.name && p.config
+      )
+      
+      if (validPrograms.length < loadedPrograms.length) {
+        console.warn(`Filtered out ${loadedPrograms.length - validPrograms.length} invalid programs`)
+      }
+      
+      setPrograms(validPrograms)
+      
+      if (validPrograms.length === 0) {
+        setLoadError("No inspection programs found. Please create a program first.")
+        setIsLoadingPrograms(false)
+        return
+      }
+      
+      // Auto-select first program or from URL
+      const urlParams = new URLSearchParams(window.location.search)
+      const programId = urlParams.get("id")
+      
+      if (programId && validPrograms.find(p => p.id === programId)) {
+        setSelectedProgramId(programId)
+        console.log(`Auto-selected program from URL: ${programId}`)
+      } else if (validPrograms.length > 0) {
+        setSelectedProgramId(validPrograms[0].id)
+        console.log(`Auto-selected first program: ${validPrograms[0].id}`)
+      }
+      
+      setIsLoadingPrograms(false)
+      
+    } catch (error) {
+      console.error("Failed to load programs:", error)
+      setLoadError("Failed to load programs. Please try again.")
+      setIsLoadingPrograms(false)
+    }
+  }
+  
+  // ========== LOAD SELECTED PROGRAM ==========
+  
+  useEffect(() => {
+    if (selectedProgramId) {
+      const program = programs.find(p => p.id === selectedProgramId)
+      if (program) {
+        setSelectedProgram(program)
+        initializeGPIOOutputs(program.config.outputs)
+        
+        // Extract master features if master image exists
+        if (program.config.masterImage && program.config.tools.length > 0) {
+          extractMasterFeatures(program.config.masterImage, program.config.tools as ToolConfig[])
+            .then(features => {
+              setMasterFeatures(features)
+              console.log("Master features extracted:", features)
+            })
+            .catch(err => console.error("Failed to extract master features:", err))
+        }
+      }
+    }
+  }, [selectedProgramId, programs])
+  
+  const initializeGPIOOutputs = (outputs: OutputAssignment) => {
+    const gpios: GPIOOutput[] = [
+      { pin: "OUT1", name: "BUSY", state: false, color: "#eab308", condition: outputs.OUT1 },
+      { pin: "OUT2", name: "OK Signal", state: false, color: "#10b981", condition: outputs.OUT2 },
+      { pin: "OUT3", name: "NG Signal", state: false, color: "#ef4444", condition: outputs.OUT3 },
+      { pin: "OUT4", name: "Custom 1", state: false, color: "#3b82f6", condition: outputs.OUT4 },
+      { pin: "OUT5", name: "Custom 2", state: false, color: "#8b5cf6", condition: outputs.OUT5 },
+      { pin: "OUT6", name: "Custom 3", state: false, color: "#ec4899", condition: outputs.OUT6 },
+      { pin: "OUT7", name: "Custom 4", state: false, color: "#14b8a6", condition: outputs.OUT7 },
+      { pin: "OUT8", name: "Custom 5", state: false, color: "#f97316", condition: outputs.OUT8 },
+    ]
+    setGpioOutputs(gpios)
+  }
+  
+  // ========== WEBSOCKET CONNECTION ==========
+  
+  useEffect(() => {
+    if (isRunning && !isPaused && selectedProgram) {
+      connectWebSocket()
+    } else {
+      disconnectWebSocket()
     }
     
-    loadProgram()
+    return () => disconnectWebSocket()
+  }, [isRunning, isPaused, selectedProgram])
+  
+  const connectWebSocket = () => {
+    if (wsConnectedRef.current) return
+    
+    try {
+      ws.connect()
+      wsConnectedRef.current = true
+      
+      // Subscribe to live feed
+      ws.on("live_frame", handleLiveFrame)
+      ws.on("inspection_result", handleInspectionResult)
+      ws.on("error", handleWSError)
+      
+      // Start live feed at 10 FPS
+      ws.subscribeLiveFeed(10)
+      
+      console.log("WebSocket connected for live feed")
+    } catch (error) {
+      console.error("WebSocket connection failed:", error)
+    }
+  }
+  
+  const disconnectWebSocket = () => {
+    if (!wsConnectedRef.current) return
+    
+    try {
+      ws.off("live_frame", handleLiveFrame)
+      ws.off("inspection_result", handleInspectionResult)
+      ws.off("error", handleWSError)
+      ws.unsubscribeLiveFeed()
+      ws.disconnect()
+      wsConnectedRef.current = false
+      console.log("WebSocket disconnected")
+    } catch (error) {
+      console.error("Error disconnecting WebSocket:", error)
+    }
+  }
+  
+  const handleLiveFrame = useCallback((data: any) => {
+    if (data.image) {
+      setCurrentFrame(data.image)
+      // Draw frame on canvas if not currently showing result
+      if (currentStatus === "RUNNING" || currentStatus === "IDLE") {
+        drawFrame(data.image)
+      }
+    }
+  }, [currentStatus])
+  
+  const handleInspectionResult = useCallback((data: any) => {
+    // Handle inspection result from backend (if using backend processing)
+    console.log("Inspection result from backend:", data)
   }, [])
-
-  // Update toolResults when tools change
+  
+  const handleWSError = useCallback((data: any) => {
+    console.error("WebSocket error:", data)
+  }, [])
+  
+  // ========== INSPECTION TRIGGER SYSTEM ==========
+  
   useEffect(() => {
-    setToolResults([...tools])
-  }, [tools])
-
-  // Simulation effect - runs inspection cycle every 2 seconds
-  useEffect(() => {
-    if (!isRunning || isPaused) return
-
-    const interval = setInterval(() => {
-      runInspectionCycle()
-    }, 2000)
-
-    return () => clearInterval(interval)
-  }, [isRunning, isPaused])
-
-  // Draw canvas
-  useEffect(() => {
-    drawCanvas()
-  }, [toolResults, currentStatus])
-
-  const runInspectionCycle = () => {
+    if (!isRunning || isPaused || !selectedProgram) {
+      if (inspectionTimerRef.current) {
+        clearInterval(inspectionTimerRef.current)
+        inspectionTimerRef.current = null
+      }
+      return
+    }
+    
+    if (selectedProgram.config.triggerType === "internal") {
+      const interval = selectedProgram.config.triggerInterval || 2000
+      
+      inspectionTimerRef.current = setInterval(() => {
+        performInspection()
+      }, interval)
+      
+      console.log(`Internal trigger started: ${interval}ms interval`)
+    } else {
+      // External trigger - handled via WebSocket
+      console.log("External trigger mode - waiting for GPIO signal")
+    }
+    
+    return () => {
+      if (inspectionTimerRef.current) {
+        clearInterval(inspectionTimerRef.current)
+        inspectionTimerRef.current = null
+      }
+    }
+  }, [isRunning, isPaused, selectedProgram])
+  
+  // ========== INSPECTION PROCESSING ==========
+  
+  const performInspection = async () => {
+    if (!selectedProgram || !currentFrame) {
+      console.warn("Cannot perform inspection: no program or frame")
+      return
+    }
+    
     try {
+      setCurrentStatus("RUNNING")
+      
+      // Set BUSY signal
+      updateGPIOOutput("OUT1", true)
+      
       const startTime = performance.now()
-
-      // Simulate tool results
-      const updatedTools = tools.map((tool) => {
-        try {
-          const matchRate = Math.random() * 100
-          const status = matchRate >= tool.threshold ? "OK" : "NG"
-          return { ...tool, matchRate, status }
-        } catch (error) {
-          console.error('Error simulating tool result:', error)
-          return { ...tool, matchRate: 0, status: "NG" }
+      
+      // Process inspection using inspection engine
+      const result = await processInspection(
+        currentFrame,
+        selectedProgram.config.tools as ToolConfig[],
+        { masterFeatures, debugMode: false }
+      )
+      
+      result.programId = selectedProgram.id
+      result.processingTime = performance.now() - startTime
+      
+      // Update current result
+      setCurrentResult(result)
+      
+      // Update recent results
+      setRecentResults(prev => [result, ...prev].slice(0, 20))
+      
+      // Update statistics
+      updateStatistics(result)
+      
+      // Update GPIO outputs
+      updateGPIOFromResult(result)
+      
+      // Draw result on canvas
+      drawInspectionResult(result)
+      
+      // Set status
+      setCurrentStatus(result.status)
+      
+      // Save to storage (optional)
+      saveInspectionResult(result)
+      
+      // Reset status after 500ms
+      setTimeout(() => {
+        if (isRunning && !isPaused) {
+          setCurrentStatus("RUNNING")
         }
-      })
-
-      setToolResults(updatedTools)
-
-      // Determine overall status
-      const hasNG = updatedTools.some((tool) => tool.status === "NG")
-      const overallStatus = hasNG ? "NG" : "OK"
-      setCurrentStatus(overallStatus)
-
-    // Update statistics
-    const cycleTime = performance.now() - startTime
-    setStats((prev) => {
-      const newTotal = prev.totalInspections + 1
-      const newOk = overallStatus === "OK" ? prev.okCount + 1 : prev.okCount
-      const newNg = overallStatus === "NG" ? prev.ngCount + 1 : prev.ngCount
-      const newAvg = (prev.avgCycleTime * prev.totalInspections + cycleTime) / newTotal
-      const newMin = prev.minCycleTime === 0 ? cycleTime : Math.min(prev.minCycleTime, cycleTime)
-      const newMax = Math.max(prev.maxCycleTime, cycleTime)
-
-      const newStats = {
-        totalInspections: newTotal,
-        okCount: newOk,
-        ngCount: newNg,
-        currentCycleTime: cycleTime,
-        avgCycleTime: newAvg,
-        minCycleTime: newMin,
-        maxCycleTime: newMax,
-      }
-
-      // Save stats to localStorage
-      if (currentProgram) {
-        try {
-          storage.updateStats(currentProgram.id, {
-            totalInspections: newTotal,
-            okCount: newOk,
-            ngCount: newNg,
-            lastRun: new Date().toLocaleString()
-          })
-        } catch (error) {
-          console.error("Failed to update program stats:", error)
-        }
-      }
-
-      return newStats
-    })
-
-    const currentTime = new Date().toLocaleTimeString()
-    setProcessingTimeHistory((prev) => {
-      const newHistory = [...prev, { time: currentTime, value: cycleTime }]
-      return newHistory.slice(-20) // Keep last 20 data points
-    })
-
-    setInspectionRateHistory((prev) => {
-      const newHistory = [
-        ...prev,
-        {
-          time: currentTime,
-          ok: overallStatus === "OK" ? 1 : 0,
-          ng: overallStatus === "NG" ? 1 : 0,
-        },
-      ]
-      return newHistory.slice(-20) // Keep last 20 data points
-    })
-
-    captureImageForHistory(overallStatus, cycleTime)
-
-    // Reset to RUNNING after showing result
-    setTimeout(() => {
-      if (isRunning && !isPaused) {
-        setCurrentStatus("RUNNING")
-      }
-    }, 500)
+        // Clear BUSY signal
+        updateGPIOOutput("OUT1", false)
+      }, 500)
+      
     } catch (error) {
-      console.error('Error in inspection cycle:', error)
+      console.error("Inspection failed:", error)
       setCurrentStatus("NG")
+      updateGPIOOutput("OUT3", true) // Error signal
+      setTimeout(() => {
+        updateGPIOOutput("OUT1", false)
+        updateGPIOOutput("OUT3", false)
+      }, 500)
     }
   }
-
-  const captureImageForHistory = (status: "OK" | "NG", processingTime: number) => {
+  
+  const updateStatistics = (result: InspectionResult) => {
+    setStatistics(prev => {
+      const total = prev.totalInspected + 1
+      const passed = result.status === "OK" ? prev.passed + 1 : prev.passed
+      const failed = result.status === "NG" ? prev.failed + 1 : prev.failed
+      const passRate = (passed / total) * 100
+      
+      const totalTime = prev.avgProcessingTime * prev.totalInspected + result.processingTime
+      const avgProcessingTime = totalTime / total
+      
+      const totalConfidence = prev.avgConfidence * prev.totalInspected + result.overallConfidence
+      const avgConfidence = totalConfidence / total
+      
+      const uptime = Date.now() - startTimeRef.current
+      
+      return {
+        totalInspected: total,
+        passed,
+        failed,
+        passRate,
+        avgProcessingTime,
+        currentCycleTime: result.processingTime,
+        avgConfidence,
+        uptime,
+      }
+    })
+  }
+  
+  const saveInspectionResult = async (result: InspectionResult) => {
     try {
-      const canvas = canvasRef.current
-      if (!canvas) {
-        console.warn('Canvas not available for image capture')
-        return
+      // Update program stats in storage
+      if (selectedProgram) {
+        storage.updateStats(selectedProgram.id, {
+          totalInspections: statistics.totalInspected + 1,
+          okCount: result.status === "OK" ? statistics.passed + 1 : statistics.passed,
+          ngCount: result.status === "NG" ? statistics.failed + 1 : statistics.failed,
+          lastRun: new Date().toISOString(),
+        })
       }
-
-      const imageData = canvas.toDataURL("image/png")
-      const newImage: InspectionImage = {
-        id: `IMG-${Date.now()}`,
-        timestamp: new Date(),
-        status,
-        processingTime,
-        imageData,
-      }
-
-      setImageHistory((prev) => {
-        const newHistory = [newImage, ...prev]
-        return newHistory.slice(0, 100) // Keep last 100 images
-      })
+      
+      // Send to backend API (if available)
+      // await fetch("/api/inspections", {
+      //   method: "POST",
+      //   headers: { "Content-Type": "application/json" },
+      //   body: JSON.stringify(result),
+      // })
     } catch (error) {
-      console.error('Error capturing image for history:', error)
+      console.error("Failed to save inspection result:", error)
     }
   }
-
-  const drawCanvas = () => {
-    try {
-      const canvas = canvasRef.current
-      if (!canvas) {
-        console.warn('Canvas ref not available')
-        return
+  
+  // ========== GPIO OUTPUT CONTROL ==========
+  
+  const updateGPIOFromResult = (result: InspectionResult) => {
+    // Update outputs based on result
+    gpioOutputs.forEach(gpio => {
+      let shouldActivate = false
+      
+      switch (gpio.condition) {
+        case "OK":
+          shouldActivate = result.status === "OK"
+          break
+        case "NG":
+          shouldActivate = result.status === "NG"
+          break
+        case "Always ON":
+          shouldActivate = true
+          break
+        case "Always OFF":
+          shouldActivate = false
+          break
+        case "Not Used":
+          shouldActivate = false
+          break
       }
-
-      const ctx = canvas.getContext("2d")
-      if (!ctx) {
-        console.error('Failed to get canvas context')
-        return
+      
+      if (gpio.pin === "OUT2" && result.status === "OK") {
+        // Pulse OK signal
+        updateGPIOOutput(gpio.pin, true)
+        setTimeout(() => updateGPIOOutput(gpio.pin, false), 300)
+      } else if (gpio.pin === "OUT3" && result.status === "NG") {
+        // Pulse NG signal
+        updateGPIOOutput(gpio.pin, true)
+        setTimeout(() => updateGPIOOutput(gpio.pin, false), 300)
+      } else if (gpio.pin !== "OUT1" && gpio.pin !== "OUT2" && gpio.pin !== "OUT3") {
+        updateGPIOOutput(gpio.pin, shouldActivate)
       }
-
-      // Clear canvas
+    })
+  }
+  
+  const updateGPIOOutput = (pin: string, state: boolean) => {
+    setGpioOutputs(prev =>
+      prev.map(gpio => (gpio.pin === pin ? { ...gpio, state } : gpio))
+    )
+    
+    // Send to backend/hardware
+    fetch("/api/gpio/write", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin, value: state }),
+    }).catch(err => console.error("GPIO write failed:", err))
+  }
+  
+  // ========== CANVAS DRAWING ==========
+  
+  const drawFrame = (frameBase64: string) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    
+    const img = new Image()
+    img.onload = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-      // Draw background (simulated camera image)
-      ctx.fillStyle = "#1e293b"
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-      // Draw grid
-      ctx.strokeStyle = "#334155"
-      ctx.lineWidth = 1
-      for (let i = 0; i < canvas.width; i += 40) {
-        ctx.beginPath()
-        ctx.moveTo(i, 0)
-        ctx.lineTo(i, canvas.height)
-        ctx.stroke()
-      }
-      for (let i = 0; i < canvas.height; i += 40) {
-        ctx.beginPath()
-        ctx.moveTo(0, i)
-        ctx.lineTo(canvas.width, i)
-        ctx.stroke()
-      }
-
-      // Draw tool ROIs with status
-      toolResults.forEach((tool) => {
-        try {
-          // Draw ROI border
-          ctx.strokeStyle = tool.color
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+    }
+    img.src = frameBase64.startsWith("data:") ? frameBase64 : `data:image/jpeg;base64,${frameBase64}`
+  }
+  
+  const drawInspectionResult = (result: InspectionResult) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    
+    const img = new Image()
+    img.onload = () => {
+      // Clear and draw image
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      
+      // Draw ROI overlays
+      if (selectedProgram) {
+        selectedProgram.config.tools.forEach((tool: any, idx: number) => {
+          const toolResult = result.toolResults[idx]
+          if (!toolResult) return
+          
+          const roi = tool.roi
+          const color = toolResult.status === "OK" ? "#10b981" : "#ef4444"
+          
+          // Apply position offset if available
+          const offsetX = result.positionOffset?.x || 0
+          const offsetY = result.positionOffset?.y || 0
+          
+          // Draw ROI rectangle
+          ctx.strokeStyle = color
           ctx.lineWidth = 3
-          ctx.strokeRect(tool.roi.x, tool.roi.y, tool.roi.width, tool.roi.height)
-
+          ctx.strokeRect(roi.x + offsetX, roi.y + offsetY, roi.width, roi.height)
+          
           // Draw label background
-          const labelText = `${tool.name} - ${tool.status || "IDLE"}`
+          const labelText = `${tool.name}: ${toolResult.matching_rate.toFixed(1)}%`
+          ctx.font = "bold 14px sans-serif"
           const textWidth = ctx.measureText(labelText).width
-          ctx.fillStyle = tool.color
-          ctx.fillRect(tool.roi.x, tool.roi.y - 24, textWidth + 16, 24)
-
+          
+          ctx.fillStyle = color
+          ctx.fillRect(roi.x + offsetX, roi.y + offsetY - 25, textWidth + 16, 25)
+          
           // Draw label text
           ctx.fillStyle = "#ffffff"
-          ctx.font = "12px sans-serif"
-          ctx.fillText(labelText, tool.roi.x + 8, tool.roi.y - 8)
-
-          // Draw match rate if available
-          if (tool.matchRate !== undefined) {
-            ctx.fillStyle = tool.status === "OK" ? "#10b981" : "#ef4444"
-            ctx.font = "bold 16px sans-serif"
-            ctx.fillText(
-              `${tool.matchRate.toFixed(1)}%`,
-              tool.roi.x + tool.roi.width / 2 - 20,
-              tool.roi.y + tool.roi.height / 2,
-            )
-          }
-        } catch (error) {
-          console.error('Error drawing tool ROI:', error)
-        }
-      })
-
-      // Draw overall status overlay
-      if (currentStatus === "OK" || currentStatus === "NG") {
-        ctx.fillStyle = currentStatus === "OK" ? "rgba(16, 185, 129, 0.1)" : "rgba(239, 68, 68, 0.1)"
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
+          ctx.fillText(labelText, roi.x + offsetX + 8, roi.y + offsetY - 7)
+        })
       }
-    } catch (error) {
-      console.error('Error in drawCanvas:', error)
+      
+      // Draw overall status
+      const statusColor = result.status === "OK" ? "#10b981" : "#ef4444"
+      ctx.fillStyle = statusColor + "30"
+      ctx.fillRect(10, 10, 200, 60)
+      
+      ctx.strokeStyle = statusColor
+      ctx.lineWidth = 3
+      ctx.strokeRect(10, 10, 200, 60)
+      
+      ctx.fillStyle = statusColor
+      ctx.font = "bold 32px sans-serif"
+      ctx.fillText(result.status, 20, 50)
     }
+    img.src = result.image.startsWith("data:") ? result.image : `data:image/jpeg;base64,${result.image}`
   }
-
+  
+  // ========== CONTROL FUNCTIONS ==========
+  
   const handleStart = () => {
+    if (!selectedProgramId) {
+      alert("Please select an inspection program")
+      return
+    }
+    
     setIsRunning(true)
     setIsPaused(false)
     setCurrentStatus("RUNNING")
+    startTimeRef.current = Date.now()
+    
+    // Reset statistics
+    setStatistics({
+      totalInspected: 0,
+      passed: 0,
+      failed: 0,
+      passRate: 0,
+      avgProcessingTime: 0,
+      currentCycleTime: 0,
+      avgConfidence: 0,
+      uptime: 0,
+    })
+    
+    setRecentResults([])
   }
-
-  const handlePause = () => {
-    setIsPaused(!isPaused)
-  }
-
+  
   const handleStop = () => {
     setIsRunning(false)
     setIsPaused(false)
     setCurrentStatus("IDLE")
+    
+    // Reset all GPIO outputs
+    gpioOutputs.forEach(gpio => {
+      updateGPIOOutput(gpio.pin, false)
+    })
   }
-
-  const exportStatistics = () => {
+  
+  const handlePause = () => {
+    setIsPaused(!isPaused)
+  }
+  
+  const handleManualTrigger = () => {
+    if (!isRunning || isPaused) {
+      return
+    }
+    
+    // Manually trigger an inspection
+    performInspection()
+  }
+  
+  const handleProgramChange = (programId: string) => {
+    if (isRunning) {
+      alert("Stop inspection before changing programs")
+      return
+    }
+    setSelectedProgramId(programId)
+  }
+  
+  const exportResults = () => {
     const data = {
-      programInfo,
-      stats,
-      processingTimeHistory,
-      inspectionRateHistory,
+      program: selectedProgram?.name,
+      statistics,
+      recentResults: recentResults.map(r => ({
+        id: r.id,
+        timestamp: r.timestamp.toISOString(),
+        status: r.status,
+        processingTime: r.processingTime,
+        confidence: r.overallConfidence,
+      })),
       exportedAt: new Date().toISOString(),
     }
+    
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `statistics-${programInfo.id}-${Date.now()}.json`
+    a.download = `inspection-results-${Date.now()}.json`
     a.click()
     URL.revokeObjectURL(url)
   }
-
-  const filteredImages = imageHistory.filter((img) => {
-    if (imageFilter === "ALL") return true
-    return img.status === imageFilter
-  })
-
-  const pieData = [
-    { name: "OK", value: stats.okCount, color: "#10b981" },
-    { name: "NG", value: stats.ngCount, color: "#ef4444" },
-  ]
-
+  
+  // ========== RENDER ==========
+  
   return (
-    <div className="min-h-screen bg-slate-950 text-foreground">
-      {/* Top Bar */}
-      <div className="bg-slate-900 border-b border-slate-800 px-6 py-4">
+    <div className="flex flex-col h-screen bg-background">
+      {/* Header */}
+      <div className="border-b px-6 py-4 bg-slate-900">
         <div className="flex items-center justify-between">
-          {/* Program Info */}
           <div className="flex items-center gap-4">
             <Button
-              onClick={() => (window.location.href = "/")}
               variant="ghost"
+              size="sm"
+              onClick={() => (window.location.href = "/")}
               className="text-slate-400 hover:text-white"
             >
-              ← Back
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
             </Button>
             <div>
-              <h1 className="text-xl font-bold text-white">{programInfo.name}</h1>
-              <p className="text-sm text-slate-400">Program ID: {programInfo.id}</p>
-            </div>
-          </div>
-
-          {/* Status Indicator */}
-          <div className="flex items-center gap-3">
-            <div
-              className={`px-4 py-2 rounded-lg font-semibold flex items-center gap-2 ${
-                currentStatus === "IDLE"
-                  ? "bg-slate-800 text-slate-400"
-                  : currentStatus === "RUNNING"
-                    ? "bg-blue-600 text-white"
-                    : currentStatus === "OK"
-                      ? "bg-green-600 text-white"
-                      : "bg-red-600 text-white"
-              }`}
-            >
-              {currentStatus === "OK" && <CheckCircle2 className="h-5 w-5" />}
-              {currentStatus === "NG" && <XCircle className="h-5 w-5" />}
-              {currentStatus === "RUNNING" && <Activity className="h-5 w-5 animate-pulse" />}
-              {currentStatus}
-            </div>
-          </div>
-
-          {/* Control Buttons */}
-          <div className="flex items-center gap-2">
-            {!isRunning ? (
-              <Button onClick={handleStart} className="bg-green-600 hover:bg-green-700 text-white gap-2">
-                <Play className="h-4 w-4" />
-                Start
-              </Button>
-            ) : (
-              <>
+              <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                Run Inspection Program
                 <Button
-                  onClick={handlePause}
-                  className={`${isPaused ? "bg-blue-600 hover:bg-blue-700" : "bg-yellow-600 hover:bg-yellow-700"} text-white gap-2`}
+                  variant="ghost"
+                  size="sm"
+                  onClick={loadPrograms}
+                  disabled={isLoadingPrograms || isRunning}
+                  className="text-slate-400 hover:text-white"
+                  title="Reload programs"
                 >
-                  <Pause className="h-4 w-4" />
-                  {isPaused ? "Resume" : "Pause"}
+                  <RefreshCw className={`h-4 w-4 ${isLoadingPrograms ? 'animate-spin' : ''}`} />
                 </Button>
-                <Button onClick={handleStop} className="bg-red-600 hover:bg-red-700 text-white gap-2">
-                  <StopIcon className="h-4 w-4" />
-                  Stop
-                </Button>
-              </>
+              </h2>
+              <p className="text-sm text-slate-400 mt-1">
+                {isLoadingPrograms 
+                  ? "Loading programs..." 
+                  : selectedProgram 
+                    ? selectedProgram.name 
+                    : programs.length === 0 
+                      ? "No programs available - Please create one first"
+                      : "Select a program to begin"}
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            {/* Status Badge */}
+            {currentStatus === "IDLE" && <Badge variant="outline">IDLE</Badge>}
+            {currentStatus === "RUNNING" && (
+              <Badge className="bg-blue-600">
+                <Activity className="h-3 w-3 mr-1 animate-pulse" />
+                RUNNING
+              </Badge>
             )}
-            <Button
-              onClick={() => setShowConfig(!showConfig)}
-              variant="secondary"
-              className="bg-slate-700 hover:bg-slate-600 text-white gap-2"
-            >
-              <Settings className="h-4 w-4" />
-              Config
-            </Button>
-            <Button
-              onClick={() => setShowStats(!showStats)}
-              variant="secondary"
-              className="bg-slate-700 hover:bg-slate-600 text-white gap-2"
-            >
-              <BarChart3 className="h-4 w-4" />
-              Stats
-            </Button>
-            <Button
-              onClick={() => setShowHistory(!showHistory)}
-              variant="secondary"
-              className="bg-slate-700 hover:bg-slate-600 text-white gap-2"
-            >
-              <ImageIcon className="h-4 w-4" />
-              History
-            </Button>
+            {currentStatus === "OK" && (
+              <Badge className="bg-green-600">
+                <CheckCircle2 className="h-3 w-3 mr-1" />
+                PASS
+              </Badge>
+            )}
+            {currentStatus === "NG" && (
+              <Badge className="bg-red-600">
+                <XCircle className="h-3 w-3 mr-1" />
+                FAIL
+              </Badge>
+            )}
+            
+            {/* Statistics Summary */}
+            <div className="text-right">
+              <div className="text-sm text-slate-400">Total Inspections</div>
+              <div className="text-2xl font-bold text-white">{statistics.totalInspected}</div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Main Content - 3 Column Layout */}
-      <div className="grid grid-cols-12 gap-6 p-6">
-        {/* Left Column - Live View */}
-        <div className="col-span-6">
-          <Card className="bg-slate-900 border-slate-800">
-            <CardHeader>
-              <CardTitle className="text-white flex items-center gap-2">
-                <Activity className="h-5 w-5 text-blue-400" />
-                Live View
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <canvas
-                ref={canvasRef}
-                width={640}
-                height={480}
-                className="border-2 border-slate-800 rounded-lg w-full"
-              />
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Middle Column - Tool Results */}
-        <div className="col-span-3 space-y-4">
-          <Card className="bg-slate-900 border-slate-800">
-            <CardHeader>
-              <CardTitle className="text-white flex items-center gap-2">
-                <BarChart3 className="h-5 w-5 text-green-400" />
-                Tool Results
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {toolResults.map((tool) => (
-                <div key={tool.id} className="bg-slate-950 rounded-lg p-3 border border-slate-800">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: tool.color }} />
-                      <span className="text-white font-semibold text-sm">{tool.name}</span>
-                    </div>
-                    {tool.status && (
-                      <span
-                        className={`px-2 py-1 rounded text-xs font-bold ${
-                          tool.status === "OK" ? "bg-green-600 text-white" : "bg-red-600 text-white"
-                        }`}
-                      >
-                        {tool.status}
-                      </span>
-                    )}
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-400">Match Rate</span>
-                      <span className="text-blue-400 font-mono font-semibold">
-                        {tool.matchRate?.toFixed(1) || "0.0"}%
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-400">Threshold</span>
-                      <span className="text-slate-300 font-mono">{tool.threshold}%</span>
-                    </div>
-                    {/* Progress bar */}
-                    <div className="w-full bg-slate-800 rounded-full h-2 mt-2">
-                      <div
-                        className={`h-2 rounded-full transition-all ${
-                          tool.status === "OK" ? "bg-green-500" : tool.status === "NG" ? "bg-red-500" : "bg-slate-600"
-                        }`}
-                        style={{ width: `${tool.matchRate || 0}%` }}
-                      />
-                    </div>
-                  </div>
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left: Live Feed (60%) */}
+        <div className="flex-1 flex flex-col p-6">
+          {/* Control Bar */}
+          <Card className="mb-4 bg-slate-900 border-slate-800">
+            <CardContent className="p-4">
+              {/* Loading State */}
+              {isLoadingPrograms && (
+                <div className="flex items-center gap-3 text-slate-400">
+                  <Activity className="h-5 w-5 animate-spin" />
+                  <span>Loading programs...</span>
                 </div>
-              ))}
+              )}
+              
+              {/* Error State */}
+              {!isLoadingPrograms && loadError && (
+                <div className="flex items-center gap-3 text-red-400">
+                  <AlertCircle className="h-5 w-5" />
+                  <span>{loadError}</span>
+                  <Button 
+                    onClick={loadPrograms} 
+                    variant="outline" 
+                    size="sm"
+                    className="ml-auto"
+                  >
+                    Retry
+                  </Button>
+                </div>
+              )}
+              
+              {/* Normal State */}
+              {!isLoadingPrograms && !loadError && (
+                <div className="flex items-center gap-4">
+                  {/* Program Selector */}
+                  <Select 
+                    value={selectedProgramId} 
+                    onValueChange={handleProgramChange}
+                    disabled={programs.length === 0}
+                  >
+                    <SelectTrigger className="flex-1 bg-slate-950 border-slate-700 text-white">
+                      <SelectValue placeholder={
+                        programs.length === 0 
+                          ? "No programs available" 
+                          : "Select Program"
+                      } />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {programs.map(program => (
+                        <SelectItem key={program.id} value={program.id}>
+                          {program.name} ({program.config.tools.length} tools)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {/* Control Buttons */}
+                {!isRunning ? (
+                  <Button onClick={handleStart} size="lg" className="bg-green-600 hover:bg-green-700">
+                    <Play className="h-5 w-5 mr-2" />
+                    Start
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      onClick={handlePause}
+                      size="lg"
+                      variant="outline"
+                      className="border-yellow-600 text-yellow-600 hover:bg-yellow-600 hover:text-white"
+                    >
+                      <Pause className="h-5 w-5 mr-2" />
+                      {isPaused ? "Resume" : "Pause"}
+                    </Button>
+                    <Button onClick={handleStop} size="lg" variant="destructive">
+                      <Square className="h-5 w-5 mr-2" />
+                      Stop
+                    </Button>
+                  </>
+                )}
+                
+                {/* Manual Trigger Button */}
+                <Button 
+                  onClick={handleManualTrigger}
+                  disabled={!isRunning || isPaused}
+                  size="lg"
+                  className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Target className="h-5 w-5 mr-2" />
+                  Trigger
+                </Button>
+                
+                <Button onClick={exportResults} variant="outline" size="lg">
+                  <Download className="h-5 w-5 mr-2" />
+                  Export
+                </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Canvas */}
+          <Card className="flex-1 bg-slate-900 border-slate-800">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-white">
+                <Camera className="h-5 w-5 text-blue-400" />
+                Live Inspection View
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="h-[calc(100%-80px)]">
+              <div className="h-full bg-slate-950 rounded-lg flex items-center justify-center relative">
+                <canvas
+                  ref={canvasRef}
+                  width={640}
+                  height={480}
+                  className="max-w-full max-h-full border border-slate-800 rounded"
+                />
+                {!currentFrame && !isRunning && (
+                  <div className="absolute inset-0 flex items-center justify-center text-slate-500">
+                    <div className="text-center">
+                      <Camera className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                      <p>Camera feed will appear here when inspection starts</p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Right Column - Statistics */}
-        <div className="col-span-3 space-y-4">
+        {/* Right: Stats & GPIO (40%) */}
+        <div className="w-[40%] border-l border-slate-800 overflow-y-auto p-6 space-y-4 bg-slate-950">
+          {/* Statistics */}
           <Card className="bg-slate-900 border-slate-800">
             <CardHeader>
-              <CardTitle className="text-white flex items-center gap-2">
-                <TrendingUp className="h-5 w-5 text-purple-400" />
+              <CardTitle className="flex items-center gap-2 text-white">
+                <TrendingUp className="h-5 w-5 text-blue-400" />
                 Statistics
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Inspection Counts */}
-              <div className="bg-slate-950 rounded-lg p-3 border border-slate-800">
-                <div className="text-slate-400 text-xs mb-2">Total Inspections</div>
-                <div className="text-white text-2xl font-bold">{stats.totalInspections}</div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-green-950 rounded-lg p-3 border border-green-800">
+            <CardContent>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-3 bg-slate-950 rounded border border-slate-800">
+                  <div className="text-xs text-slate-400">Total</div>
+                  <div className="text-2xl font-bold text-white">{statistics.totalInspected}</div>
+                </div>
+                <div className="p-3 bg-slate-950 rounded border border-slate-800">
+                  <div className="text-xs text-slate-400">Pass Rate</div>
+                  <div className="text-2xl font-bold text-green-400">
+                    {statistics.passRate.toFixed(1)}%
+                  </div>
+                </div>
+                <div className="p-3 bg-green-950 rounded border border-green-800">
                   <div className="flex items-center gap-2 mb-1">
                     <CheckCircle2 className="h-4 w-4 text-green-400" />
-                    <span className="text-green-400 text-xs">OK</span>
+                    <span className="text-xs text-green-400">Passed</span>
                   </div>
-                  <div className="text-white text-xl font-bold">{stats.okCount}</div>
-                  <div className="text-green-400 text-xs">
-                    {stats.totalInspections > 0 ? ((stats.okCount / stats.totalInspections) * 100).toFixed(1) : "0.0"}%
-                  </div>
+                  <div className="text-2xl font-bold text-white">{statistics.passed}</div>
                 </div>
-
-                <div className="bg-red-950 rounded-lg p-3 border border-red-800">
+                <div className="p-3 bg-red-950 rounded border border-red-800">
                   <div className="flex items-center gap-2 mb-1">
                     <XCircle className="h-4 w-4 text-red-400" />
-                    <span className="text-red-400 text-xs">NG</span>
+                    <span className="text-xs text-red-400">Failed</span>
                   </div>
-                  <div className="text-white text-xl font-bold">{stats.ngCount}</div>
-                  <div className="text-red-400 text-xs">
-                    {stats.totalInspections > 0 ? ((stats.ngCount / stats.totalInspections) * 100).toFixed(1) : "0.0"}%
-                  </div>
+                  <div className="text-2xl font-bold text-white">{statistics.failed}</div>
                 </div>
               </div>
+              
+              <div className="mt-4 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-400">Avg Processing Time</span>
+                  <span className="text-blue-400 font-mono">
+                    {statistics.avgProcessingTime.toFixed(2)}ms
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-400">Current Cycle Time</span>
+                  <span className="text-blue-400 font-mono">
+                    {statistics.currentCycleTime.toFixed(2)}ms
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-400">Avg Confidence</span>
+                  <span className="text-blue-400 font-mono">
+                    {statistics.avgConfidence.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
-              {/* Cycle Times */}
-              <div className="bg-slate-950 rounded-lg p-3 border border-slate-800">
-                <div className="flex items-center gap-2 mb-3">
-                  <Clock className="h-4 w-4 text-blue-400" />
-                  <span className="text-slate-400 text-xs">Cycle Times (ms)</span>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-400">Current</span>
-                    <span className="text-blue-400 font-mono font-semibold">{stats.currentCycleTime.toFixed(2)}</span>
+          {/* Tool Results */}
+          {currentResult && selectedProgram && (
+            <Card className="bg-slate-900 border-slate-800">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-white">
+                  <Settings className="h-5 w-5 text-purple-400" />
+                  Tool Results
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {currentResult.toolResults.map((toolResult, idx) => {
+                  const tool = selectedProgram.config.tools[idx]
+                  return (
+                    <div
+                      key={idx}
+                      className={`p-3 rounded border ${
+                        toolResult.status === "OK"
+                          ? "bg-green-950 border-green-800"
+                          : "bg-red-950 border-red-800"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: tool.color }}
+                          />
+                          <span className="text-white font-semibold text-sm">
+                            {toolResult.name}
+                          </span>
+                        </div>
+                        <Badge
+                          variant={toolResult.status === "OK" ? "default" : "destructive"}
+                          className={toolResult.status === "OK" ? "bg-green-600" : ""}
+                        >
+                          {toolResult.status}
+                        </Badge>
+                      </div>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Match Rate</span>
+                          <span className="text-white font-mono">
+                            {toolResult.matching_rate.toFixed(1)}%
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Threshold</span>
+                          <span className="text-slate-300 font-mono">
+                            {toolResult.threshold}%
+                          </span>
+                        </div>
+                        {/* Progress bar */}
+                        <div className="w-full bg-slate-800 rounded-full h-2 mt-2">
+                          <div
+                            className={`h-2 rounded-full transition-all ${
+                              toolResult.status === "OK" ? "bg-green-500" : "bg-red-500"
+                            }`}
+                            style={{ width: `${Math.min(100, toolResult.matching_rate)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* GPIO Outputs */}
+          <Card className="bg-slate-900 border-slate-800">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-white">
+                <Zap className="h-5 w-5 text-yellow-400" />
+                GPIO Outputs
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-2">
+                {gpioOutputs.map(gpio => (
+                  <div
+                    key={gpio.pin}
+                    className={`p-2 border rounded transition-all ${
+                      gpio.state
+                        ? "border-2 shadow-lg"
+                        : "border-slate-700 opacity-60"
+                    }`}
+                    style={{
+                      borderColor: gpio.state ? gpio.color : undefined,
+                      backgroundColor: gpio.state ? `${gpio.color}20` : "transparent",
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-3 h-3 rounded-full transition-all"
+                        style={{
+                          backgroundColor: gpio.state ? gpio.color : "#6b7280",
+                          boxShadow: gpio.state ? `0 0 8px ${gpio.color}` : "none",
+                        }}
+                      />
+                      <div className="flex-1">
+                        <div className="text-xs font-bold text-white">{gpio.pin}</div>
+                        <div className="text-xs text-slate-400">{gpio.name}</div>
+                      </div>
+                      <div className="text-xs text-white font-mono">
+                        {gpio.state ? "ON" : "OFF"}
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-400">Average</span>
-                    <span className="text-slate-300 font-mono">{stats.avgCycleTime.toFixed(2)}</span>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Recent Results */}
+          <Card className="bg-slate-900 border-slate-800">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-white">
+                <Clock className="h-5 w-5 text-orange-400" />
+                Recent Inspections
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                {recentResults.length === 0 ? (
+                  <div className="text-center text-slate-500 py-4 text-sm">
+                    No inspections yet
                   </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-400">Min</span>
-                    <span className="text-green-400 font-mono">{stats.minCycleTime.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-slate-400">Max</span>
-                    <span className="text-red-400 font-mono">{stats.maxCycleTime.toFixed(2)}</span>
-                  </div>
-                </div>
+                ) : (
+                  recentResults.map(result => (
+                    <div
+                      key={result.id}
+                      className={`p-3 border rounded ${
+                        result.status === "OK"
+                          ? "border-green-800 bg-green-950"
+                          : "border-red-800 bg-red-950"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          {result.status === "OK" ? (
+                            <CheckCircle2 className="h-4 w-4 text-green-400" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-400" />
+                          )}
+                          <span className="font-bold text-white">{result.status}</span>
+                        </div>
+                        <span className="text-xs text-slate-400 font-mono">
+                          {result.timestamp.toLocaleTimeString()}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-300">
+                        Confidence: {(result.overallConfidence).toFixed(1)}% | Time:{" "}
+                        {result.processingTime.toFixed(1)}ms
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>
         </div>
       </div>
-
-      {/* Expandable Configuration Panel */}
-      {showConfig && (
-        <div className="fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 shadow-lg z-10">
-          <div className="px-6 py-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-white font-semibold flex items-center gap-2">
-                <Settings className="h-5 w-5" />
-                Configuration
-              </h3>
-              <Button
-                onClick={() => setShowConfig(false)}
-                variant="ghost"
-                size="sm"
-                className="text-slate-400 hover:text-white"
-              >
-                <ChevronDown className="h-5 w-5" />
-              </Button>
-            </div>
-            <div className="grid grid-cols-4 gap-4">
-              {tools.map((tool) => (
-                <div key={tool.id} className="bg-slate-950 rounded-lg p-3 border border-slate-800">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: tool.color }} />
-                    <span className="text-white text-sm font-semibold">{tool.name}</span>
-                  </div>
-                  <div className="space-y-1 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Threshold</span>
-                      <span className="text-slate-300 font-mono">{tool.threshold}%</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">ROI</span>
-                      <span className="text-slate-300 font-mono">
-                        {tool.roi.width}x{tool.roi.height}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showStats && (
-        <div className="fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 shadow-lg z-10 max-h-[70vh] overflow-y-auto">
-          <div className="px-6 py-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-white font-semibold flex items-center gap-2">
-                <BarChart3 className="h-5 w-5" />
-                Detailed Statistics
-              </h3>
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={exportStatistics}
-                  variant="secondary"
-                  size="sm"
-                  className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
-                >
-                  <Download className="h-4 w-4" />
-                  Export
-                </Button>
-                <Button
-                  onClick={() => setShowStats(false)}
-                  variant="ghost"
-                  size="sm"
-                  className="text-slate-400 hover:text-white"
-                >
-                  <ChevronDown className="h-5 w-5" />
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              {/* Processing Time Trend Chart */}
-              <Card className="bg-slate-950 border-slate-800">
-                <CardHeader>
-                  <CardTitle className="text-white text-sm">Processing Time Trend</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {processingTimeHistory.length > 0 ? (
-                    <ChartContainer
-                      config={{
-                        value: {
-                          label: "Time (ms)",
-                          color: "hsl(var(--chart-1))",
-                        },
-                      }}
-                      className="h-[200px]"
-                    >
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={processingTimeHistory}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                          <XAxis dataKey="time" stroke="#94a3b8" fontSize={10} />
-                          <YAxis stroke="#94a3b8" fontSize={10} />
-                          <ChartTooltip content={<ChartTooltipContent />} />
-                          <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={2} dot={false} />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </ChartContainer>
-                  ) : (
-                    <div className="h-[200px] flex items-center justify-center text-slate-500 text-sm">No data yet</div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* OK/NG Ratio Pie Chart */}
-              <Card className="bg-slate-950 border-slate-800">
-                <CardHeader>
-                  <CardTitle className="text-white text-sm">OK/NG Ratio</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {stats.totalInspections > 0 ? (
-                    <ChartContainer
-                      config={{
-                        ok: {
-                          label: "OK",
-                          color: "#10b981",
-                        },
-                        ng: {
-                          label: "NG",
-                          color: "#ef4444",
-                        },
-                      }}
-                      className="h-[200px]"
-                    >
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={pieData}
-                            cx="50%"
-                            cy="50%"
-                            labelLine={false}
-                            label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                            outerRadius={60}
-                            fill="#8884d8"
-                            dataKey="value"
-                          >
-                            {pieData.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={entry.color} />
-                            ))}
-                          </Pie>
-                          <ChartTooltip content={<ChartTooltipContent />} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </ChartContainer>
-                  ) : (
-                    <div className="h-[200px] flex items-center justify-center text-slate-500 text-sm">No data yet</div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Inspection Rate Bar Chart */}
-              <Card className="bg-slate-950 border-slate-800">
-                <CardHeader>
-                  <CardTitle className="text-white text-sm">Inspection Rate</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {inspectionRateHistory.length > 0 ? (
-                    <ChartContainer
-                      config={{
-                        ok: {
-                          label: "OK",
-                          color: "#10b981",
-                        },
-                        ng: {
-                          label: "NG",
-                          color: "#ef4444",
-                        },
-                      }}
-                      className="h-[200px]"
-                    >
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={inspectionRateHistory}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                          <XAxis dataKey="time" stroke="#94a3b8" fontSize={10} />
-                          <YAxis stroke="#94a3b8" fontSize={10} />
-                          <ChartTooltip content={<ChartTooltipContent />} />
-                          <Legend />
-                          <Bar dataKey="ok" fill="#10b981" name="OK" />
-                          <Bar dataKey="ng" fill="#ef4444" name="NG" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </ChartContainer>
-                  ) : (
-                    <div className="h-[200px] flex items-center justify-center text-slate-500 text-sm">No data yet</div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showHistory && (
-        <div className="fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 shadow-lg z-10 max-h-[70vh] overflow-y-auto">
-          <div className="px-6 py-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-white font-semibold flex items-center gap-2">
-                <ImageIcon className="h-5 w-5" />
-                Image History ({filteredImages.length} images)
-              </h3>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-2 bg-slate-950 rounded-lg p-1 border border-slate-800">
-                  <Button
-                    onClick={() => setImageFilter("ALL")}
-                    variant="ghost"
-                    size="sm"
-                    className={`text-xs ${imageFilter === "ALL" ? "bg-slate-700 text-white" : "text-slate-400"}`}
-                  >
-                    All
-                  </Button>
-                  <Button
-                    onClick={() => setImageFilter("OK")}
-                    variant="ghost"
-                    size="sm"
-                    className={`text-xs ${imageFilter === "OK" ? "bg-green-600 text-white" : "text-slate-400"}`}
-                  >
-                    OK
-                  </Button>
-                  <Button
-                    onClick={() => setImageFilter("NG")}
-                    variant="ghost"
-                    size="sm"
-                    className={`text-xs ${imageFilter === "NG" ? "bg-red-600 text-white" : "text-slate-400"}`}
-                  >
-                    NG
-                  </Button>
-                </div>
-                <Button
-                  onClick={() => setShowHistory(false)}
-                  variant="ghost"
-                  size="sm"
-                  className="text-slate-400 hover:text-white"
-                >
-                  <ChevronDown className="h-5 w-5" />
-                </Button>
-              </div>
-            </div>
-
-            {/* Horizontal scrolling gallery */}
-            <div className="flex gap-3 overflow-x-auto pb-4">
-              {filteredImages.length > 0 ? (
-                filteredImages.map((img) => (
-                  <div
-                    key={img.id}
-                    className="flex-shrink-0 bg-slate-950 rounded-lg border border-slate-800 overflow-hidden cursor-pointer hover:border-blue-500 transition-colors"
-                    onClick={() => setSelectedImage(img)}
-                  >
-                    <div className="relative">
-                      <img src={img.imageData || "/placeholder.svg"} alt={img.id} className="w-48 h-36 object-cover" />
-                      <div
-                        className={`absolute top-2 right-2 px-2 py-1 rounded text-xs font-bold ${
-                          img.status === "OK" ? "bg-green-600 text-white" : "bg-red-600 text-white"
-                        }`}
-                      >
-                        {img.status}
-                      </div>
-                    </div>
-                    <div className="p-2 space-y-1">
-                      <div className="text-xs text-slate-400">{img.timestamp.toLocaleTimeString()}</div>
-                      <div className="text-xs text-slate-300 font-mono">{img.processingTime.toFixed(2)} ms</div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="w-full h-40 flex items-center justify-center text-slate-500 text-sm">
-                  No images captured yet
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {selectedImage && (
-        <div
-          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-8"
-          onClick={() => setSelectedImage(null)}
-        >
-          <div
-            className="bg-slate-900 rounded-lg border border-slate-800 max-w-4xl w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between p-4 border-b border-slate-800">
-              <div className="flex items-center gap-3">
-                <h3 className="text-white font-semibold">{selectedImage.id}</h3>
-                <span
-                  className={`px-3 py-1 rounded text-sm font-bold ${
-                    selectedImage.status === "OK" ? "bg-green-600 text-white" : "bg-red-600 text-white"
-                  }`}
-                >
-                  {selectedImage.status}
-                </span>
-              </div>
-              <Button
-                onClick={() => setSelectedImage(null)}
-                variant="ghost"
-                size="sm"
-                className="text-slate-400 hover:text-white"
-              >
-                Close
-              </Button>
-            </div>
-            <div className="p-4">
-              <img
-                src={selectedImage.imageData || "/placeholder.svg"}
-                alt={selectedImage.id}
-                className="w-full rounded-lg"
-              />
-              <div className="mt-4 grid grid-cols-2 gap-4">
-                <div className="bg-slate-950 rounded-lg p-3 border border-slate-800">
-                  <div className="text-slate-400 text-xs mb-1">Timestamp</div>
-                  <div className="text-white text-sm">{selectedImage.timestamp.toLocaleString()}</div>
-                </div>
-                <div className="bg-slate-950 rounded-lg p-3 border border-slate-800">
-                  <div className="text-slate-400 text-xs mb-1">Processing Time</div>
-                  <div className="text-white text-sm font-mono">{selectedImage.processingTime.toFixed(2)} ms</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

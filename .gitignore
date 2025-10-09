@@ -249,9 +249,9 @@ secrets.yaml
 token_*.txt
 *.token
 .tokens/
+token_GitHub_raspberry_push.txt
 
-# Keep the example token file for documentation
-!token_GitHub_raspberry_push.txt
+# Security: Never commit actual tokens or secrets
 
 # ==================== Testing ====================
 
