@@ -53,7 +53,7 @@ daemon = False  # Should be False when using systemd
 proc_name = 'vision_inspection_backend'
 
 # PID file
-pidfile = os.environ.get('GUNICORN_PID', '/tmp/gunicorn_vision_inspection.pid')
+pidfile = '/tmp/gunicorn_vision_inspection.pid'
 
 # User/Group (if running as root, drop privileges)
 # user = 'www-data'

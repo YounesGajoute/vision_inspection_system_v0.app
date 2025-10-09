@@ -119,7 +119,6 @@ export FLASK_ENV=production
 export GUNICORN_WORKERS="$WORKERS"
 export GUNICORN_BIND="$BIND"
 export GUNICORN_LOG_LEVEL="$LOG_LEVEL"
-export GUNICORN_PID="$PID_FILE"
 
 # Check if already running
 if [ -f "$PID_FILE" ]; then
@@ -160,6 +159,7 @@ if [ "$DAEMON" = true ]; then
         --log-level "$LOG_LEVEL" \
         --access-logfile logs/access.log \
         --error-logfile logs/error.log \
+        --log-syslog \
         wsgi:app
     
     if [ -f "$PID_FILE" ]; then
