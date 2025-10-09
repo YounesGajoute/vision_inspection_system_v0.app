@@ -373,6 +373,55 @@ def set_gpio_output(output_number):
         return jsonify({'error': 'Internal server error'}), 500
 
 
+@api.route('/gpio/write', methods=['POST'])
+@validate_json_request(required_fields=['pin', 'value'])
+def write_gpio():
+    """
+    POST /api/gpio/write
+    Body: {pin: "OUT1", value: true/false}
+    
+    Compatible endpoint for Run page GPIO control.
+    Converts pin name (OUT1-OUT8) to output number (1-8).
+    """
+    try:
+        data = request.get_json()
+        pin = data.get('pin')
+        value = data.get('value')
+        
+        # Validate pin format
+        if not isinstance(pin, str) or not pin.startswith('OUT'):
+            return jsonify({'error': 'pin must be in format OUT1-OUT8'}), 400
+        
+        # Extract pin number
+        try:
+            pin_number = int(pin.replace('OUT', ''))
+            if pin_number < 1 or pin_number > 8:
+                return jsonify({'error': 'pin number must be 1-8'}), 400
+        except ValueError:
+            return jsonify({'error': 'Invalid pin format'}), 400
+        
+        # Validate value
+        if not isinstance(value, bool):
+            return jsonify({'error': 'value must be boolean'}), 400
+        
+        # Set GPIO output
+        gpio_controller.set_output(pin_number, value)
+        
+        logger.debug(f"GPIO {pin} set to {value}")
+        
+        return jsonify({
+            'message': f'GPIO write successful',
+            'pin': pin,
+            'value': value
+        }), 200
+        
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"GPIO write failed: {e}")
+        return jsonify({'error': 'GPIO write failed'}), 500
+
+
 @api.route('/gpio/test', methods=['POST'])
 def test_gpio_sequence():
     """Run GPIO test sequence"""
