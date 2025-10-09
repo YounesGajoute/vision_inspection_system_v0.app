@@ -34,6 +34,7 @@ export default function Step3ToolConfiguration({
   const [currentRect, setCurrentRect] = useState<ROI | null>(null);
   const [activeHandle, setActiveHandle] = useState<ResizeHandle>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [hoverHandle, setHoverHandle] = useState<ResizeHandle>(null);
   const { toast } = useToast();
 
   // Draw canvas whenever tools or master image changes
@@ -110,7 +111,7 @@ export default function Step3ToolConfiguration({
   };
 
   const drawResizeHandles = (ctx: CanvasRenderingContext2D, roi: ROI, color: string) => {
-    const handleSize = 8;
+    const handleSize = 10; // Increased from 8 for better visibility
     const handles = [
       { x: roi.x, y: roi.y }, // top-left
       { x: roi.x + roi.width, y: roi.y }, // top-right
@@ -132,8 +133,8 @@ export default function Step3ToolConfiguration({
   };
 
   const getHandleAtPosition = (x: number, y: number, roi: ROI): ResizeHandle => {
-    const handleSize = 8;
-    const tolerance = handleSize / 2;
+    const handleSize = 10;
+    const tolerance = 12; // Increased tolerance for easier clicking
 
     // Check corner handles
     if (Math.abs(x - roi.x) <= tolerance && Math.abs(y - roi.y) <= tolerance) return 'tl';
@@ -158,8 +159,11 @@ export default function Step3ToolConfiguration({
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    // Scale coordinates to match internal canvas size
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
 
     // If in edit mode, handle resizing/moving
     if (editMode === 'editing' && currentRect) {
@@ -218,8 +222,17 @@ export default function Step3ToolConfiguration({
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    // Scale coordinates to match internal canvas size
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
+    // Update hover state in edit mode (when not actively dragging)
+    if (editMode === 'editing' && currentRect && !activeHandle) {
+      const handle = getHandleAtPosition(x, y, currentRect);
+      setHoverHandle(handle);
+    }
 
     // Drawing new ROI
     if (isDrawing && startPoint && editMode === 'drawing') {
@@ -359,6 +372,16 @@ export default function Step3ToolConfiguration({
     }
   };
 
+  const handleCanvasMouseLeave = () => {
+    // Clear hover state when mouse leaves canvas
+    setHoverHandle(null);
+    
+    // If drawing, treat as mouse up
+    if (isDrawing || activeHandle) {
+      handleCanvasMouseUp();
+    }
+  };
+
   const handleSaveTool = () => {
     if (!currentRect || !selectedToolType) return;
 
@@ -410,7 +433,13 @@ export default function Step3ToolConfiguration({
 
   const getCursorStyle = () => {
     if (editMode === 'editing') {
-      return 'cursor-move';
+      // Show appropriate cursor based on hover position
+      if (hoverHandle === 'tl' || hoverHandle === 'br') return 'cursor-nwse-resize';
+      if (hoverHandle === 'tr' || hoverHandle === 'bl') return 'cursor-nesw-resize';
+      if (hoverHandle === 't' || hoverHandle === 'b') return 'cursor-ns-resize';
+      if (hoverHandle === 'l' || hoverHandle === 'r') return 'cursor-ew-resize';
+      if (hoverHandle === 'move') return 'cursor-move';
+      return 'cursor-default';
     }
     if (editMode === 'drawing') {
       return 'cursor-crosshair';
@@ -446,7 +475,7 @@ export default function Step3ToolConfiguration({
                 onMouseDown={handleCanvasMouseDown}
                 onMouseMove={handleCanvasMouseMove}
                 onMouseUp={handleCanvasMouseUp}
-                onMouseLeave={handleCanvasMouseUp}
+                onMouseLeave={handleCanvasMouseLeave}
                 className={`border rounded w-full ${getCursorStyle()}`}
               />
               
