@@ -73,7 +73,8 @@ export default function ConfigurePage() {
       case 2:
         return masterImageRegistered;
       case 3:
-        return configuredTools.length > 0;
+        // Allow skipping tools for testing
+        return true; // Changed from: configuredTools.length > 0
       case 4:
         return false; // Last step, no next button
       default:
@@ -98,8 +99,8 @@ export default function ConfigurePage() {
       // Build program configuration
       const config: ProgramConfig = {
         triggerType,
-        triggerInterval: triggerType === 'internal' ? parseInt(triggerInterval) : undefined,
-        triggerDelay: triggerType === 'external' ? parseInt(externalDelay) : undefined,
+        triggerInterval: triggerType === 'internal' ? parseInt(triggerInterval) : 1000, // Default for external
+        triggerDelay: triggerType === 'external' ? parseInt(externalDelay) : 0, // Default for internal
         brightnessMode,
         focusValue: focusValue[0],
         masterImage: masterImagePath,

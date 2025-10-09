@@ -145,13 +145,7 @@ class DatabaseManager:
         """
         with self._get_cursor() as cursor:
             cursor.execute("""
-                SELECT 
-                    p.*,
-                    ps.success_rate,
-                    ps.tool_count
-                FROM programs p
-                JOIN program_stats ps ON p.id = ps.id
-                WHERE p.id = ?
+                SELECT * FROM programs WHERE id = ?
             """, (program_id,))
             
             row = cursor.fetchone()
@@ -161,6 +155,13 @@ class DatabaseManager:
             program = dict(row)
             program['config'] = json.loads(program['config_json'])
             del program['config_json']
+            
+            # Calculate stats on the fly
+            program['success_rate'] = (
+                (program['ok_count'] / program['total_inspections'] * 100)
+                if program['total_inspections'] > 0 else 0
+            )
+            program['tool_count'] = len(program['config'].get('tools', []))
             
             return program
     

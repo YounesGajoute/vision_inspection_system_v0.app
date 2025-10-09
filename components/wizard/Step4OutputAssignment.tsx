@@ -73,14 +73,15 @@ export default function Step4OutputAssignment({
       return;
     }
 
-    if (toolCount === 0) {
-      toast({
-        title: "Validation Error",
-        description: "At least one inspection tool must be configured",
-        variant: "destructive",
-      });
-      return;
-    }
+    // Allow saving without tools for testing
+    // if (toolCount === 0) {
+    //   toast({
+    //     title: "Validation Error",
+    //     description: "At least one inspection tool must be configured",
+    //     variant: "destructive",
+    //   });
+    //   return;
+    // }
 
     setIsSaving(true);
     

@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Play, Settings, Plus, Calendar, CheckCircle2, XCircle, Trash2 } from "lucide-react"
-import { storage, Program } from "@/lib/storage"
+import { api } from "@/lib/api"
 
 interface DisplayProgram {
   id: string
@@ -16,36 +16,7 @@ interface DisplayProgram {
   ngCount: number
 }
 
-// Sample programs for initial setup
-const samplePrograms: DisplayProgram[] = [
-  {
-    id: "PROG_001",
-    name: "PCB Assembly Check",
-    createdDate: "2024-01-15",
-    lastRun: "2024-10-05 14:32:18",
-    totalInspections: 15847,
-    okCount: 15623,
-    ngCount: 224,
-  },
-  {
-    id: "PROG_002",
-    name: "Label Position Verify",
-    createdDate: "2024-02-20",
-    lastRun: "2024-10-06 09:15:42",
-    totalInspections: 8932,
-    okCount: 8901,
-    ngCount: 31,
-  },
-  {
-    id: "PROG_003",
-    name: "Connector Pin Inspection",
-    createdDate: "2024-03-10",
-    lastRun: "2024-10-06 11:48:55",
-    totalInspections: 23456,
-    okCount: 22987,
-    ngCount: 469,
-  },
-]
+// No more demo programs - fetch real data from database API
 
 export default function ProgramSelectionScreen() {
   const [programs, setPrograms] = useState<DisplayProgram[]>([])
@@ -55,60 +26,44 @@ export default function ProgramSelectionScreen() {
     loadPrograms()
   }, [])
 
-  const loadPrograms = () => {
+  const loadPrograms = async () => {
     try {
-      const storedPrograms = storage.getAllPrograms()
+      setIsLoading(true)
       
-      if (storedPrograms.length === 0) {
-        // Initialize with sample programs if no programs exist
-        const initialPrograms = samplePrograms.map(prog => ({
-          id: prog.id,
+      // Fetch real programs from database API
+      const apiPrograms = await api.getPrograms(true) // active only
+      
+      if (apiPrograms && apiPrograms.length > 0) {
+        // Convert API programs to display format
+        const displayPrograms = apiPrograms.map((prog: any) => ({
+          id: prog.id.toString(),
           name: prog.name,
-          created: prog.createdDate,
-          lastRun: prog.lastRun,
-          totalInspections: prog.totalInspections,
-          okCount: prog.okCount,
-          ngCount: prog.ngCount,
-          config: {
-            triggerType: "internal",
-            triggerInterval: 100,
-            triggerDelay: 10,
-            brightnessMode: "normal",
-            focusValue: 50,
-            masterImage: null,
-            tools: [],
-            outputs: {}
-          }
-        }))
-        
-        initialPrograms.forEach(program => storage.saveProgram(program))
-        setPrograms(samplePrograms)
-      } else {
-        // Convert stored programs to display format
-        const displayPrograms = storedPrograms.map(prog => ({
-          id: prog.id,
-          name: prog.name,
-          createdDate: prog.created,
-          lastRun: prog.lastRun || "Never",
-          totalInspections: prog.totalInspections,
-          okCount: prog.okCount,
-          ngCount: prog.ngCount
+          createdDate: prog.created_at?.split(' ')[0] || 'Unknown',
+          lastRun: prog.last_run || "Never",
+          totalInspections: prog.total_inspections || 0,
+          okCount: prog.ok_count || 0,
+          ngCount: prog.ng_count || 0
         }))
         setPrograms(displayPrograms)
+      } else {
+        // No programs in database
+        setPrograms([])
       }
     } catch (error) {
-      console.error("Failed to load programs:", error)
-      setPrograms(samplePrograms) // Fallback to sample programs
+      console.error("Failed to load programs from API:", error)
+      // Show empty state instead of demo programs
+      setPrograms([])
     } finally {
       setIsLoading(false)
     }
   }
 
-  const handleDeleteProgram = (programId: string) => {
+  const handleDeleteProgram = async (programId: string) => {
     if (confirm("Are you sure you want to delete this program?")) {
       try {
-        storage.deleteProgram(programId)
-        setPrograms(programs.filter(p => p.id !== programId))
+        await api.deleteProgram(parseInt(programId))
+        // Reload programs after delete
+        await loadPrograms()
       } catch (error) {
         console.error("Failed to delete program:", error)
         alert("Failed to delete program. Please try again.")
