@@ -34,14 +34,16 @@ class CameraController:
         'highgain': {'AnalogueGain': 8.0, 'ExposureTime': 30000}
     }
     
-    def __init__(self, resolution: Tuple[int, int] = (640, 480)):
+    def __init__(self, resolution: Tuple[int, int] = (640, 480), camera_device: int = 0):
         """
         Initialize camera controller.
         
         Args:
             resolution: Camera resolution (width, height)
+            camera_device: Camera device index (0=/dev/video0, 1=/dev/video1, etc.)
         """
         self.resolution = resolution
+        self.camera_device = camera_device
         self.camera = None
         self.is_previewing = False
         self._connect()
@@ -58,14 +60,22 @@ class CameraController:
                 self.camera.start()
                 logger.info(f"Camera initialized at resolution {self.resolution}")
             else:
-                # Simulated camera for development
-                self.camera = cv2.VideoCapture(0)
+                # USB camera for development
+                # Try device path first, then index
+                device_path = f"/dev/video{self.camera_device}"
+                self.camera = cv2.VideoCapture(device_path, cv2.CAP_V4L2)
+                
+                # If device path fails, try numeric index
+                if not self.camera.isOpened():
+                    self.camera.release()
+                    self.camera = cv2.VideoCapture(self.camera_device)
+                
                 if self.camera.isOpened():
                     self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.resolution[0])
                     self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.resolution[1])
-                    logger.info("Simulated camera initialized (USB webcam)")
+                    logger.info(f"USB camera initialized on {device_path}")
                 else:
-                    logger.warning("No camera available - using test pattern")
+                    logger.warning(f"No camera available on device {self.camera_device} - using test pattern")
                     self.camera = None
         except Exception as e:
             logger.error(f"Failed to initialize camera: {e}")
@@ -262,6 +272,96 @@ class CameraController:
             'sharpness': float(sharpness),
             'exposure': float(100 - (over_exposed + under_exposed) * 100),
             'score': float(overall_score)
+        }
+    
+    def validate_image_consistency(
+        self,
+        master_image: np.ndarray,
+        captured_image: np.ndarray
+    ) -> Dict[str, any]:
+        """
+        Validate that master image and captured image have consistent quality
+        for accurate matching. This is critical for template matching algorithms.
+        
+        Checks:
+        - Resolution consistency
+        - Brightness difference (should be within 20%)
+        - Sharpness difference (should be within 30%)
+        - Overall quality consistency
+        
+        Args:
+            master_image: Master reference image (RGB)
+            captured_image: Captured test image (RGB)
+            
+        Returns:
+            Dictionary with:
+            - consistent: bool (True if images are consistent)
+            - issues: List of consistency issues found
+            - master_quality: Quality metrics of master image
+            - captured_quality: Quality metrics of captured image
+            - warnings: List of warnings (non-critical issues)
+        """
+        issues = []
+        warnings = []
+        
+        # Check resolution consistency
+        if master_image.shape != captured_image.shape:
+            issues.append(
+                f"Resolution mismatch: Master {master_image.shape} vs "
+                f"Captured {captured_image.shape}"
+            )
+        
+        # Get quality metrics for both images
+        master_quality = self.validate_image_quality(master_image)
+        captured_quality = self.validate_image_quality(captured_image)
+        
+        # Check brightness consistency (within 20%)
+        brightness_diff = abs(
+            master_quality['brightness'] - captured_quality['brightness']
+        )
+        brightness_threshold = 0.2 * master_quality['brightness']
+        if brightness_diff > brightness_threshold:
+            warnings.append(
+                f"Brightness difference: {brightness_diff:.1f} "
+                f"(Master: {master_quality['brightness']:.1f}, "
+                f"Captured: {captured_quality['brightness']:.1f})"
+            )
+        
+        # Check sharpness consistency (within 30%)
+        sharpness_ratio = (
+            captured_quality['sharpness'] / master_quality['sharpness']
+            if master_quality['sharpness'] > 0 else 1.0
+        )
+        if sharpness_ratio < 0.7 or sharpness_ratio > 1.3:
+            warnings.append(
+                f"Sharpness inconsistency: Captured image is "
+                f"{sharpness_ratio*100:.0f}% of master sharpness"
+            )
+        
+        # Check overall quality scores (both should be reasonable)
+        if master_quality['score'] < 50:
+            warnings.append(
+                f"Master image quality is low: {master_quality['score']:.1f}/100"
+            )
+        if captured_quality['score'] < 50:
+            warnings.append(
+                f"Captured image quality is low: {captured_quality['score']:.1f}/100"
+            )
+        
+        # Determine if consistent (no critical issues)
+        consistent = len(issues) == 0
+        
+        return {
+            'consistent': consistent,
+            'issues': issues,
+            'warnings': warnings,
+            'master_quality': master_quality,
+            'captured_quality': captured_quality,
+            'recommendation': (
+                'Images are consistent for matching' if consistent and not warnings
+                else 'Check warnings - may affect matching accuracy' if consistent
+                else 'Critical issues found - matching may fail'
+            )
         }
     
     def _calculate_sharpness(self, image: np.ndarray) -> float:

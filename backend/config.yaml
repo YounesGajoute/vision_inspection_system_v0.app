@@ -3,6 +3,7 @@ system:
   version: "1.0.0"
   
 camera:
+  device: 1  # USB camera device index (0=/dev/video0, 1=/dev/video1, etc.)
   resolution: [640, 480]
   framerate: 30
   format: "RGB888"

@@ -158,6 +158,10 @@ def upload_master_image():
     Body: {programId}
     Returns: {path, quality_score}
     Validation: file type, size, quality
+    
+    NOTE: Uploaded images are automatically re-encoded with consistent quality
+    parameters (lossless PNG) to ensure matching consistency with captured images.
+    This is critical for accurate template matching during inspection.
     """
     try:
         # Get file
@@ -189,13 +193,14 @@ def upload_master_image():
         # Validate image quality
         quality = camera_controller.validate_image_quality(image_rgb)
         
-        # Save image
+        # Save image with consistent quality parameters (PNG lossless)
+        # This re-encodes uploaded images to ensure consistency with camera captures
         image_path = program_manager.save_master_image(program_id, image_rgb)
         
         return jsonify({
             'path': image_path,
             'quality': quality,
-            'message': 'Master image uploaded successfully'
+            'message': 'Master image uploaded and re-encoded for quality consistency'
         }), 200
         
     except ValueError as e:

@@ -14,6 +14,8 @@ import {
   Activity, CheckCircle2, AlertCircle, Info, 
   RotateCcw, Save, Download, Play, Pause 
 } from "lucide-react"
+import { api } from "@/lib/api"
+import { useToast } from "@/components/ui/use-toast"
 
 interface Step1Props {
   brightnessMode: 'normal' | 'hdr' | 'highgain';
@@ -28,6 +30,7 @@ export default function Step1ImageOptimization({
   focusValue,
   setFocusValue,
 }: Step1Props) {
+  const { toast } = useToast()
   // Sensor Configuration States
   const [lightingMode, setLightingMode] = useState("normal")
   const [exposureTime, setExposureTime] = useState([5000]) // microseconds
@@ -59,7 +62,15 @@ export default function Step1ImageOptimization({
   const [processingTime, setProcessingTime] = useState(0)
   const [previewMode, setPreviewMode] = useState("enhanced")
   
+  // Camera Integration States
+  const [capturedImage, setCapturedImage] = useState<string | null>(null)
+  const [imageQuality, setImageQuality] = useState<any>(null)
+  const [isCapturing, setIsCapturing] = useState(false)
+  const [isOptimizing, setIsOptimizing] = useState(false)
+  const [cameraStatus, setCameraStatus] = useState<'connected' | 'disconnected' | 'error'>('disconnected')
+  
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const previewIntervalRef = useRef<NodeJS.Timeout | null>(null)
   
   // Sync lighting mode with parent brightnessMode
   useEffect(() => {
@@ -97,7 +108,119 @@ export default function Step1ImageOptimization({
     }
   }
   
-  // Auto-optimize based on lighting mode
+  // Check camera connection on mount
+  useEffect(() => {
+    checkCameraConnection()
+  }, [])
+  
+  const checkCameraConnection = async () => {
+    try {
+      const health = await fetch('/api/health')
+      const data = await health.json()
+      if (data.components?.camera === 'ok') {
+        setCameraStatus('connected')
+      } else {
+        setCameraStatus('error')
+      }
+    } catch (error) {
+      console.error('Camera connection check failed:', error)
+      setCameraStatus('error')
+    }
+  }
+  
+  // Capture image from real camera
+  const captureRealImage = async () => {
+    if (cameraStatus !== 'connected') {
+      toast({
+        title: "Camera Not Available",
+        description: "Please ensure the Logitech C925e is connected.",
+        variant: "destructive"
+      })
+      return
+    }
+    
+    setIsCapturing(true)
+    try {
+      const result = await api.captureImage({
+        brightnessMode,
+        focusValue: focusValue[0]
+      })
+      
+      setCapturedImage(result.image)
+      setImageQuality(result.quality)
+      
+      // Draw captured image to canvas
+      if (canvasRef.current && result.image) {
+        const img = new Image()
+        img.onload = () => {
+          const ctx = canvasRef.current?.getContext('2d')
+          if (ctx) {
+            ctx.clearRect(0, 0, canvasRef.current!.width, canvasRef.current!.height)
+            ctx.drawImage(img, 0, 0, canvasRef.current!.width, canvasRef.current!.height)
+          }
+        }
+        img.src = `data:image/jpeg;base64,${result.image}`
+      }
+      
+      toast({
+        title: "Image Captured",
+        description: `Quality Score: ${result.quality?.score?.toFixed(2) || 'N/A'}`,
+      })
+    } catch (error) {
+      console.error('Capture failed:', error)
+      toast({
+        title: "Capture Failed",
+        description: "Failed to capture image from camera.",
+        variant: "destructive"
+      })
+    } finally {
+      setIsCapturing(false)
+    }
+  }
+  
+  // Auto-optimize using backend
+  const autoOptimizeCamera = async () => {
+    if (cameraStatus !== 'connected') {
+      toast({
+        title: "Camera Not Available",
+        description: "Please ensure the Logitech C925e is connected.",
+        variant: "destructive"
+      })
+      return
+    }
+    
+    setIsOptimizing(true)
+    try {
+      const result = await api.autoOptimize()
+      
+      // Update local state with optimized values
+      if (result.optimalBrightness) {
+        setBrightnessMode(result.optimalBrightness as any)
+      }
+      if (result.optimalFocus !== undefined) {
+        setFocusValue([result.optimalFocus])
+      }
+      
+      toast({
+        title: "Auto-Optimization Complete",
+        description: `Optimal Focus: ${result.optimalFocus}, Brightness: ${result.optimalBrightness}`,
+      })
+      
+      // Capture a test image with new settings
+      setTimeout(() => captureRealImage(), 500)
+    } catch (error) {
+      console.error('Auto-optimize failed:', error)
+      toast({
+        title: "Optimization Failed",
+        description: "Failed to auto-optimize camera settings.",
+        variant: "destructive"
+      })
+    } finally {
+      setIsOptimizing(false)
+    }
+  }
+  
+  // Auto-optimize based on lighting mode (local simulation)
   const autoOptimize = () => {
     const exposure = getSuggestedExposure()
     const gain = getSuggestedGain()
@@ -225,19 +348,36 @@ export default function Step1ImageOptimization({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold">Step 1: Image Optimization</h2>
+          <h2 className="text-3xl font-bold flex items-center gap-3">
+            Step 1: Image Optimization
+            <Badge 
+              variant={cameraStatus === 'connected' ? 'default' : 'destructive'}
+              className={cameraStatus === 'connected' ? 'bg-green-500' : ''}
+            >
+              <Camera className="mr-1 h-3 w-3" />
+              {cameraStatus === 'connected' ? 'Logitech C925e Connected' : 'Camera Disconnected'}
+            </Badge>
+          </h2>
           <p className="text-muted-foreground mt-1">
-            Raspberry Pi 5 + IMX477 HQ Camera - Professional Configuration
+            Real-time camera preview and optimization for Logitech Webcam C925e
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={autoOptimize}>
+          <Button 
+            variant="outline" 
+            onClick={autoOptimizeCamera}
+            disabled={cameraStatus !== 'connected' || isOptimizing}
+          >
             <Zap className="mr-2 h-4 w-4" />
-            Auto Optimize
+            {isOptimizing ? 'Optimizing...' : 'Auto Optimize Camera'}
           </Button>
-          <Button variant="outline">
-            <Download className="mr-2 h-4 w-4" />
-            Export Profile
+          <Button 
+            variant="outline"
+            onClick={captureRealImage}
+            disabled={cameraStatus !== 'connected' || isCapturing}
+          >
+            <Camera className="mr-2 h-4 w-4" />
+            {isCapturing ? 'Capturing...' : 'Capture Test Image'}
           </Button>
         </div>
       </div>
@@ -479,34 +619,72 @@ export default function Step1ImageOptimization({
             {/* Right Column - Info & Stats */}
             <div className="space-y-4">
               <Card className="p-6">
-                <h3 className="text-lg font-semibold mb-4">Sensor Specifications</h3>
+                <h3 className="text-lg font-semibold mb-4">Camera Specifications</h3>
                 <div className="space-y-3">
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Sensor</span>
-                    <span className="font-medium">Sony IMX477</span>
+                    <span className="text-muted-foreground">Model</span>
+                    <span className="font-medium">Logitech C925e</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Resolution</span>
-                    <span className="font-medium">12.3 MP (4056×3040)</span>
+                    <span className="font-medium">1920×1080 @ 30fps</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Dynamic Range</span>
-                    <span className="font-medium">11.3 stops</span>
+                    <span className="text-muted-foreground">Device Path</span>
+                    <span className="font-medium">/dev/video1</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Bit Depth</span>
-                    <span className="font-medium">12-bit ADC</span>
+                    <span className="text-muted-foreground">Format</span>
+                    <span className="font-medium">YUYV 4:2:2</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Pixel Size</span>
-                    <span className="font-medium">1.55 μm</span>
+                    <span className="text-muted-foreground">Field of View</span>
+                    <span className="font-medium">78° diagonal</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Read Noise</span>
-                    <span className="font-medium">3.0 e⁻ @ gain 1.0</span>
+                    <span className="text-muted-foreground">Focus</span>
+                    <span className="font-medium">Auto/Manual</span>
                   </div>
                 </div>
               </Card>
+
+              {imageQuality && (
+                <Card className="p-6 border-green-500/50 bg-green-500/5">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <CheckCircle2 className="h-5 w-5 text-green-500" />
+                    Last Capture Quality
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="p-3 bg-accent rounded-lg">
+                      <div className="text-sm text-muted-foreground mb-1">Overall Score</div>
+                      <div className="text-2xl font-mono font-bold">
+                        {imageQuality.score?.toFixed(2) || 'N/A'}/100
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-accent rounded-lg">
+                      <div className="text-sm text-muted-foreground mb-1">Brightness</div>
+                      <div className="text-2xl font-mono font-bold">
+                        {imageQuality.brightness?.toFixed(2) || 'N/A'}
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-accent rounded-lg">
+                      <div className="text-sm text-muted-foreground mb-1">Sharpness</div>
+                      <div className="text-2xl font-mono font-bold">
+                        {imageQuality.sharpness?.toFixed(2) || 'N/A'}
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-accent rounded-lg">
+                      <div className="text-sm text-muted-foreground mb-1">Exposure</div>
+                      <div className="text-2xl font-mono font-bold">
+                        {imageQuality.exposure?.toFixed(2) || 'N/A'}%
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              )}
 
               <Card className="p-6">
                 <h3 className="text-lg font-semibold mb-4">Current Configuration</h3>
@@ -1261,21 +1439,39 @@ export default function Step1ImageOptimization({
               <Card className="p-6">
                 <h3 className="text-lg font-semibold mb-4">Quick Actions</h3>
                 <div className="space-y-2">
-                  <Button className="w-full" variant="outline">
+                  <Button 
+                    className="w-full" 
+                    variant="outline"
+                    onClick={captureRealImage}
+                    disabled={cameraStatus !== 'connected' || isCapturing}
+                  >
                     <Camera className="mr-2 h-4 w-4" />
-                    Capture Test Image
+                    {isCapturing ? 'Capturing...' : 'Capture from C925e'}
                   </Button>
-                  <Button className="w-full" variant="outline">
-                    <Download className="mr-2 h-4 w-4" />
-                    Save Current Frame
+                  <Button 
+                    className="w-full" 
+                    variant="outline"
+                    onClick={autoOptimizeCamera}
+                    disabled={cameraStatus !== 'connected' || isOptimizing}
+                  >
+                    <Zap className="mr-2 h-4 w-4" />
+                    {isOptimizing ? 'Optimizing...' : 'Auto-Optimize Camera'}
                   </Button>
-                  <Button className="w-full" variant="outline">
+                  <Button 
+                    className="w-full" 
+                    variant="outline"
+                    onClick={() => checkCameraConnection()}
+                  >
                     <Settings className="mr-2 h-4 w-4" />
-                    Calibrate Camera
+                    Refresh Camera Status
                   </Button>
-                  <Button className="w-full" variant="outline" onClick={autoOptimize}>
+                  <Button 
+                    className="w-full" 
+                    variant="outline" 
+                    onClick={autoOptimize}
+                  >
                     <RotateCcw className="mr-2 h-4 w-4" />
-                    Reset to Defaults
+                    Reset Settings
                   </Button>
                 </div>
               </Card>

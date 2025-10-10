@@ -48,9 +48,21 @@ def check_camera() -> Dict[str, Any]:
     """Check camera availability and status."""
     try:
         from src.hardware.camera import CameraController
+        import yaml
+        import os
+        
+        # Load camera device from config
+        config_path = os.path.join(os.path.dirname(__file__), '../../config.yaml')
+        camera_device = 0
+        try:
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+                camera_device = config.get('camera', {}).get('device', 0)
+        except:
+            pass
         
         # Create temporary camera instance
-        camera = CameraController()
+        camera = CameraController(camera_device=camera_device)
         
         if camera.camera is None:
             return {

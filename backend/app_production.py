@@ -121,7 +121,10 @@ def create_app(config_name=None):
         logger.info("Initializing hardware controllers...")
         
         # Camera
-        camera_controller = CameraController(resolution=config.CAMERA_RESOLUTION)
+        camera_controller = CameraController(
+            resolution=config.CAMERA_RESOLUTION,
+            camera_device=config.CAMERA_DEVICE
+        )
         logger.info("Camera controller initialized")
         
         # GPIO
@@ -131,7 +134,10 @@ def create_app(config_name=None):
     except Exception as e:
         logger.warning(f"Hardware initialization warning: {e}")
         logger.info("Continuing with simulated hardware")
-        camera_controller = CameraController()
+        camera_controller = CameraController(
+            resolution=config.CAMERA_RESOLUTION,
+            camera_device=config.CAMERA_DEVICE
+        )
         gpio_controller = GPIOController()
     
     # Initialize program manager
@@ -170,7 +176,7 @@ def create_app(config_name=None):
         logger=False,
         engineio_logger=False
     )
-    init_websocket(program_manager, camera_controller, db_manager)
+    init_websocket(program_manager, camera_controller, db_manager, gpio_controller)
     logger.info("WebSocket initialized")
     
     # ==================== GLOBAL ERROR HANDLERS ====================

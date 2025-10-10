@@ -1,0 +1,119 @@
+╔══════════════════════════════════════════════════════════════════╗
+║                                                                  ║
+║           STEP 1 CAMERA INTEGRATION - BUG FIX APPLIED ✅         ║
+║                                                                  ║
+╚══════════════════════════════════════════════════════════════════╝
+
+Error Fixed: "Cannot read properties of undefined (reading 'captureImage')"
+
+┌──────────────────────────────────────────────────────────────────┐
+│ ROOT CAUSE                                                       │
+└──────────────────────────────────────────────────────────────────┘
+
+The component was importing 'apiClient' from '@/lib/api', but the 
+actual export from that file is 'api', not 'apiClient'.
+
+┌──────────────────────────────────────────────────────────────────┐
+│ CHANGES APPLIED                                                  │
+└──────────────────────────────────────────────────────────────────┘
+
+File: components/wizard/Step1ImageOptimization.tsx
+
+1. ❌ BEFORE:
+   import { apiClient } from "@/lib/api"
+   import { toast } from "@/components/ui/use-toast"
+   
+   ✅ AFTER:
+   import { api } from "@/lib/api"
+   import { useToast } from "@/components/ui/use-toast"
+
+2. ❌ BEFORE:
+   export default function Step1ImageOptimization(...) {
+     // Component code
+   }
+   
+   ✅ AFTER:
+   export default function Step1ImageOptimization(...) {
+     const { toast } = useToast()
+     // Component code
+   }
+
+3. ❌ BEFORE:
+   const result = await apiClient.captureImage({...})
+   const result = await apiClient.autoOptimize()
+   
+   ✅ AFTER:
+   const result = await api.captureImage({...})
+   const result = await api.autoOptimize()
+
+┌──────────────────────────────────────────────────────────────────┐
+│ WHAT WAS FIXED                                                   │
+└──────────────────────────────────────────────────────────────────┘
+
+✅ Import Error Fixed
+   - Changed 'apiClient' → 'api'
+   - Matches actual export from lib/api.ts
+
+✅ Toast Hook Fixed
+   - Changed direct 'toast' import → 'useToast' hook
+   - Properly uses React hook pattern
+   - Gets toast function from hook
+
+✅ API Calls Fixed
+   - All apiClient.* calls → api.* calls
+   - captureImage() now works
+   - autoOptimize() now works
+
+┌──────────────────────────────────────────────────────────────────┐
+│ VERIFICATION                                                     │
+└──────────────────────────────────────────────────────────────────┘
+
+The frontend should now:
+✓ Load without import errors
+✓ Show camera status badge
+✓ Enable "Capture Test Image" button
+✓ Enable "Auto Optimize Camera" button
+✓ Successfully capture images when clicked
+✓ Display toast notifications
+✓ Show quality metrics after capture
+
+┌──────────────────────────────────────────────────────────────────┐
+│ TESTING                                                          │
+└──────────────────────────────────────────────────────────────────┘
+
+Next.js should reload automatically. Check:
+
+1. Open browser: http://localhost:3000
+2. Navigate: Configure → New Program → Step 1
+3. Look for green badge: "Logitech C925e Connected"
+4. Click "Capture Test Image"
+5. Verify: Image appears on canvas
+6. Verify: Quality metrics display
+7. Verify: Toast notification shows
+
+┌──────────────────────────────────────────────────────────────────┐
+│ API EXPORTS (for reference)                                     │
+└──────────────────────────────────────────────────────────────────┘
+
+From lib/api.ts:
+
+export const api = new APIClient()  ← USE THIS ONE
+export default APIClient
+
+Methods available:
+- api.captureImage(options)
+- api.autoOptimize()
+- api.startPreview()
+- api.stopPreview()
+- api.healthCheck()
+- api.getPrograms()
+- api.createProgram()
+- etc.
+
+═══════════════════════════════════════════════════════════════════
+
+Fix Applied: October 10, 2025
+File Modified: components/wizard/Step1ImageOptimization.tsx
+Status: READY TO TEST ✅
+
+═══════════════════════════════════════════════════════════════════

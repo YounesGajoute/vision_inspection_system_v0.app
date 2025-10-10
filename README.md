@@ -44,6 +44,13 @@ npm run dev:all
 - LED lighting control with PWM
 - External trigger support
 
+### **Image Quality Consistency** 🔍
+- **Automatic quality validation** - Master and captured images validated for consistency
+- **Lossless PNG storage** - Master images saved with no compression artifacts
+- **Automatic re-encoding** - Uploaded images re-encoded for quality consistency
+- **Real-time quality checks** - Brightness, sharpness, and exposure validation
+- **See:** `IMAGE_QUALITY_QUICK_REFERENCE.md` for best practices
+
 ## 📁 Project Structure
 
 ```

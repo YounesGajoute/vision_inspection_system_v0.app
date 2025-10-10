@@ -343,7 +343,11 @@ class ProgramManager:
         format: str = 'png'
     ) -> str:
         """
-        Save master image to storage.
+        Save master image to storage with consistent quality parameters.
+        
+        IMPORTANT: Master images are saved with maximum quality (lossless PNG)
+        to ensure consistency with captured images during test runs.
+        This is critical for accurate template matching and inspection.
         
         Args:
             program_id: Program ID
@@ -376,8 +380,22 @@ class ProgramManager:
         else:
             image_bgr = image
         
-        # Save image
-        success = cv2.imwrite(file_path, image_bgr)
+        # Save image with explicit quality parameters for consistency
+        # This ensures master images have the same quality as captured test images
+        if format.lower() in ['png']:
+            # PNG: Use compression level 1 (best speed, lossless)
+            # Level 0 = no compression (fastest, largest file)
+            # Level 1 = best speed compression (fast, lossless, good balance)
+            # Level 9 = best compression (slowest)
+            compression_params = [cv2.IMWRITE_PNG_COMPRESSION, 1]
+        elif format.lower() in ['jpg', 'jpeg']:
+            # JPEG: Use quality 100 (maximum quality, minimal artifacts)
+            # Range: 0-100, where 100 = best quality
+            compression_params = [cv2.IMWRITE_JPEG_QUALITY, 100]
+        else:
+            compression_params = []
+        
+        success = cv2.imwrite(file_path, image_bgr, compression_params)
         
         if not success:
             raise RuntimeError(f"Failed to save master image to {file_path}")
@@ -385,7 +403,7 @@ class ProgramManager:
         # Update program with image path
         self.db.update_program(program_id, {'master_image_path': file_path})
         
-        logger.info(f"Master image saved: {file_path}")
+        logger.info(f"Master image saved with high quality: {file_path} (format={format})")
         
         return file_path
     

@@ -21,6 +21,7 @@ socketio = SocketIO()
 # Global instances
 program_manager: Optional[ProgramManager] = None
 camera_controller: Optional[CameraController] = None
+gpio_controller: Optional = None  # GPIOController
 db_manager: Optional[DatabaseManager] = None
 
 # Active sessions
@@ -28,11 +29,12 @@ active_inspections: Dict[str, Dict] = {}
 active_feeds: Dict[str, Dict] = {}
 
 
-def init_websocket(pm: ProgramManager, cam: CameraController, db: DatabaseManager):
+def init_websocket(pm: ProgramManager, cam: CameraController, db: DatabaseManager, gpio=None):
     """Initialize WebSocket with dependencies."""
-    global program_manager, camera_controller, db_manager
+    global program_manager, camera_controller, gpio_controller, db_manager
     program_manager = pm
     camera_controller = cam
+    gpio_controller = gpio
     db_manager = db
     logger.info("WebSocket initialized with dependencies")
 
@@ -179,8 +181,8 @@ def inspection_loop(program_id: int, session_id: str, stop_flag: Event, program_
     Runs in background thread.
     """
     try:
-        # Create inspection engine
-        engine = InspectionEngine(program_config)
+        # Create inspection engine with shared hardware controllers
+        engine = InspectionEngine(program_config, camera=camera_controller, gpio=gpio_controller)
         
         trigger_interval = program_config.get('triggerInterval', 1000)
         
@@ -246,8 +248,8 @@ def inspection_loop(program_id: int, session_id: str, stop_flag: Event, program_
 def single_inspection(program_id: int, session_id: str, program_config: Dict):
     """Run a single inspection."""
     try:
-        # Create inspection engine
-        engine = InspectionEngine(program_config)
+        # Create inspection engine with shared hardware controllers
+        engine = InspectionEngine(program_config, camera=camera_controller, gpio=gpio_controller)
         
         # Run inspection
         status, tool_results, processing_time, image = engine.run_inspection_cycle()

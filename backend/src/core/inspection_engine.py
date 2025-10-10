@@ -168,6 +168,29 @@ class InspectionEngine:
             if image is None:
                 raise RuntimeError("Failed to capture image")
             
+            # Quality consistency check (first cycle only)
+            # This validates that captured images have consistent quality with master image
+            # Critical for accurate template matching and inspection
+            if not hasattr(self, '_quality_checked'):
+                self._quality_checked = True
+                if self.master_image is not None:
+                    consistency = self.camera.validate_image_consistency(
+                        self.master_image,
+                        image
+                    )
+                    if not consistency['consistent']:
+                        logger.error(
+                            f"Image quality consistency check failed: "
+                            f"{consistency['issues']}"
+                        )
+                        # Don't fail inspection, but log warnings
+                    if consistency['warnings']:
+                        logger.warning(
+                            f"Image quality warnings (may affect matching accuracy): "
+                            f"{consistency['warnings']}"
+                        )
+                    logger.info(f"Quality check: {consistency['recommendation']}")
+            
             # Step 3: Position adjustment (if configured)
             position_offset = None
             position_result = None

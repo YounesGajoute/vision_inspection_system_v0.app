@@ -50,6 +50,7 @@ class Config:
     LOG_BACKUP_COUNT = int(os.getenv('LOG_BACKUP_COUNT', 30))
     
     # Camera
+    CAMERA_DEVICE = int(os.getenv('CAMERA_DEVICE', 1))  # Device index (0=/dev/video0, 1=/dev/video1, etc.)
     CAMERA_RESOLUTION = (
         int(os.getenv('CAMERA_RESOLUTION_WIDTH', 640)),
         int(os.getenv('CAMERA_RESOLUTION_HEIGHT', 480))

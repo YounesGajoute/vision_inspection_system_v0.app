@@ -102,7 +102,8 @@ def create_app(config_path='config.yaml'):
         
         # Camera
         resolution = tuple(config.get('camera', {}).get('resolution', [640, 480]))
-        camera_controller = CameraController(resolution=resolution)
+        camera_device = config.get('camera', {}).get('device', 0)
+        camera_controller = CameraController(resolution=resolution, camera_device=camera_device)
         logger.info("Camera controller initialized")
         
         # GPIO
@@ -113,7 +114,9 @@ def create_app(config_path='config.yaml'):
     except Exception as e:
         logger.warning(f"Hardware initialization warning: {e}")
         logger.info("Continuing with simulated hardware for development")
-        camera_controller = CameraController()
+        resolution = tuple(config.get('camera', {}).get('resolution', [640, 480]))
+        camera_device = config.get('camera', {}).get('device', 0)
+        camera_controller = CameraController(resolution=resolution, camera_device=camera_device)
         gpio_controller = GPIOController()
     
     # Initialize program manager
@@ -179,7 +182,7 @@ def create_app(config_path='config.yaml'):
         logger=False,
         engineio_logger=False
     )
-    init_websocket(program_manager, camera_controller, db_manager)
+    init_websocket(program_manager, camera_controller, db_manager, gpio_controller)
     logger.info("WebSocket initialized")
     
     # Add health check route at root
